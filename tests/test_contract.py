@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import shutil
 import subprocess
 import sys
@@ -53,6 +52,13 @@ EXPECTED_RESOURCES = {
     "dataset-ingest": (("ConfigMap", "comparison-dataset-ingest-config"), ("Deployment", "comparison-dataset-ingest"), ("Service", "comparison-dataset-ingest")),
     "report-generator": (("ConfigMap", "comparison-report-generator-config"), ("Deployment", "comparison-report-generator"), ("Service", "comparison-report-generator")),
 }
+EXPECTED_EXPORT = (
+    '{"apiVersion":"temp-poc.netai.io/v1alpha1","features":['
+    '{"name":"batch-analyzer","optional":[],"provides":[],"requires":["dataset-ingest"]},'
+    '{"name":"dataset-ingest","optional":[],"provides":[],"requires":[]},'
+    '{"name":"report-generator","optional":[],"provides":[],"requires":["batch-analyzer"]}'
+    '],"kind":"ProducerContract"}\n'
+)
 
 
 def run_validator(root: Path) -> subprocess.CompletedProcess[str]:
@@ -119,13 +125,8 @@ def test_exporter_is_deterministic_and_canonical() -> None:
     first = subprocess.run(command, check=True, capture_output=True, text=True).stdout
     second = subprocess.run(command, check=True, capture_output=True, text=True).stdout
 
-    # Then bytes and canonical graph are stable
-    assert first == second
-    assert json.loads(first)["features"] == [
-        {"name": "batch-analyzer", "optional": [], "provides": [], "requires": ["dataset-ingest"]},
-        {"name": "dataset-ingest", "optional": [], "provides": [], "requires": []},
-        {"name": "report-generator", "optional": [], "provides": [], "requires": ["batch-analyzer"]},
-    ]
+    # Then bytes and the complete canonical contract are stable
+    assert first == second == EXPECTED_EXPORT
 
 
 @pytest.mark.parametrize("feature", FEATURES)
@@ -200,6 +201,85 @@ def oversize_resources(root: Path) -> None:
     save_yaml(path, document)
 
 
+def deployment_template(root: Path) -> Path:
+    return root / "features/dataset-ingest/chart/templates/deployment.yaml"
+
+
+def render_latest_image(root: Path) -> None:
+    path = deployment_template(root)
+    content = path.read_text(encoding="utf-8").replace('image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"', 'image: "nginx:latest"')
+    path.write_text(content, encoding="utf-8")
+
+
+def render_wrong_digest(root: Path) -> None:
+    path = deployment_template(root)
+    image = "registry.example.invalid/temp-poc/dataset-ingest@sha256:" + "f" * 64
+    content = path.read_text(encoding="utf-8").replace('image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"', f'image: "{image}"')
+    path.write_text(content, encoding="utf-8")
+
+
+def render_mutable_init_container(root: Path) -> None:
+    path = deployment_template(root)
+    content = path.read_text(encoding="utf-8").replace(
+        "    spec:\n      containers:",
+        "    spec:\n      initContainers:\n        - name: unsafe-init\n          image: nginx:latest\n      containers:",
+    )
+    path.write_text(content, encoding="utf-8")
+
+
+def append_helper_template(root: Path, content: str) -> None:
+    path = root / "features/dataset-ingest/chart/templates/_helpers.tpl"
+    path.write_text(path.read_text(encoding="utf-8") + content, encoding="utf-8")
+
+
+def hide_dormant_forbidden_kind(root: Path) -> None:
+    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: dormant-forbidden\n{{- end }}\n")
+
+
+def hide_dormant_secret_payload(root: Path) -> None:
+    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: dormant-secret\nstringData:\n  token: exposed\n{{- end }}\n")
+
+
+def hide_dormant_block_scalar_kind(root: Path) -> None:
+    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\nkind: >-\n  Namespace\nmetadata:\n  name: dormant-block-scalar\n{{- end }}\n")
+
+
+def hide_dynamic_kind_suffix(root: Path) -> None:
+    append_helper_template(root, '\n{{- if false }}\n---\napiVersion: v1\nkind: "Deployment{{ .Values.suffix }}"\nmetadata:\n  name: dormant-dynamic\n{{- end }}\n')
+
+
+def hide_plain_scalar_dynamic_suffix(root: Path) -> None:
+    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\nkind: Deployment#{{ .Values.suffix }}\nmetadata:\n  name: dormant-plain-dynamic\n{{- end }}\n")
+
+
+def hide_plain_scalar_comma_suffix(root: Path) -> None:
+    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\nkind: Deployment,{{ .Values.suffix }}\nmetadata:\n  name: dormant-comma-dynamic\n{{- end }}\n")
+
+
+def hide_block_scalar_dynamic_suffix(root: Path) -> None:
+    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\nkind: >-\n  Deployment #{{ .Values.suffix }}\nmetadata:\n  name: dormant-block-dynamic\n{{- end }}\n")
+
+
+def hide_block_scalar_leading_blank(root: Path) -> None:
+    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\nkind: >-\n\n  Deployment\nmetadata:\n  name: dormant-block-blank\n{{- end }}\n")
+
+
+def hide_explicit_mapping_kind(root: Path) -> None:
+    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\n? kind\n: Namespace\nmetadata:\n  name: dormant-explicit\n{{- end }}\n")
+
+
+def hide_commented_explicit_kind(root: Path) -> None:
+    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\n? kind # resource type\n: Namespace\nmetadata:\n  name: dormant-explicit-comment\n{{- end }}\n")
+
+
+def hide_flow_explicit_kind(root: Path) -> None:
+    append_helper_template(root, '\n{{- if false }}\n---\n{? "kind" : "Namespace", "apiVersion": "v1", "metadata": {"name": "dormant"}}\n{{- end }}\n')
+
+
+def hide_flow_explicit_secret(root: Path) -> None:
+    append_helper_template(root, '\n{{- if false }}\n---\n{? "kind" : "Secret", ? "apiVersion" : "v1", ? "metadata" : {"name": "dormant"}, ? "stringData" : {"token": "exposed"}}\n{{- end }}\n')
+
+
 @pytest.mark.parametrize(
     ("category", "target", "mutation"),
     (
@@ -260,6 +340,40 @@ def test_validator_rejects_repository_mutation(tmp_path: Path, category: str, mu
     result = run_validator(root)
 
     # Then it fails with the stable category
+    assert result.returncode == 1
+    assert result.stderr.startswith(f"{category}:")
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize(
+    ("category", "mutation"),
+    (
+        pytest.param("WORKLOAD_IMAGE", render_latest_image, id="rendered-latest-container"),
+        pytest.param("WORKLOAD_IMAGE", render_wrong_digest, id="rendered-wrong-digest"),
+        pytest.param("WORKLOAD_IMAGE", render_mutable_init_container, id="rendered-mutable-init-container"),
+        pytest.param("FORBIDDEN_KIND", hide_dormant_forbidden_kind, id="dormant-forbidden-kind"),
+        pytest.param("SECRET_PAYLOAD", hide_dormant_secret_payload, id="dormant-secret-payload"),
+        pytest.param("FORBIDDEN_KIND", hide_dormant_block_scalar_kind, id="dormant-block-scalar-kind"),
+        pytest.param("FORBIDDEN_KIND", hide_dynamic_kind_suffix, id="dormant-dynamic-kind-suffix"),
+        pytest.param("FORBIDDEN_KIND", hide_plain_scalar_dynamic_suffix, id="dormant-plain-dynamic-suffix"),
+        pytest.param("FORBIDDEN_KIND", hide_plain_scalar_comma_suffix, id="dormant-plain-comma-suffix"),
+        pytest.param("FORBIDDEN_KIND", hide_block_scalar_dynamic_suffix, id="dormant-block-dynamic-suffix"),
+        pytest.param("FORBIDDEN_KIND", hide_block_scalar_leading_blank, id="dormant-block-leading-blank"),
+        pytest.param("FORBIDDEN_KIND", hide_explicit_mapping_kind, id="dormant-explicit-mapping-key"),
+        pytest.param("FORBIDDEN_KIND", hide_commented_explicit_kind, id="dormant-commented-explicit-key"),
+        pytest.param("FORBIDDEN_KIND", hide_flow_explicit_kind, id="dormant-flow-explicit-key"),
+        pytest.param("SECRET_PAYLOAD", hide_flow_explicit_secret, id="dormant-flow-explicit-secret"),
+    ),
+)
+def test_validator_rejects_hidden_render_policy_violation(tmp_path: Path, category: str, mutation: PathMutation) -> None:
+    # Given a policy violation hidden from the current validator
+    root = copy_repository(tmp_path)
+    mutation(root)
+
+    # When validation runs
+    result = run_validator(root)
+
+    # Then validation fails closed with no success marker
     assert result.returncode == 1
     assert result.stderr.startswith(f"{category}:")
     assert result.stdout == ""

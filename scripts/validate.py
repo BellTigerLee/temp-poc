@@ -5,15 +5,12 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, NoReturn, TypeAlias
+from typing import Final
 
 import yaml
 
-from export_contract import ContractError, validate_context_and_values, validate_static_repository
-
-Scalar: TypeAlias = str | int | float | bool | None
-JsonValue: TypeAlias = Scalar | list["JsonValue"] | dict[str, "JsonValue"]
-JsonMap: TypeAlias = dict[str, JsonValue]
+from export_contract import validate_context_and_values, validate_static_repository
+from policy import ContractError, JsonMap, JsonValue, RenderPolicy, WorkloadIdentity, assert_never, mapping, text, validate_rendered_resource
 
 FEATURES: Final = ("batch-analyzer", "dataset-ingest", "report-generator")
 GRAPH: Final = {
@@ -33,10 +30,6 @@ HEX64: Final = re.compile(r"sha256:[0-9a-f]{64}\Z")
 HEX40: Final = re.compile(r"[0-9a-f]{40}\Z")
 
 
-def assert_never(value: NoReturn) -> NoReturn:
-    raise AssertionError(f"unreachable value: {value!r}")
-
-
 @dataclass(frozen=True, slots=True)
 class Feature:
     name: str
@@ -50,27 +43,6 @@ def load_yaml(path: Path) -> JsonValue:
         return yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as error:
         raise ContractError("MALFORMED_YAML", str(path)) from error
-
-
-def mapping(value: JsonValue, label: str) -> JsonMap:
-    match value:
-        case dict():
-            return value
-        case str() | int() | float() | bool() | list() | None:
-            raise ContractError("INVALID_SCHEMA", f"{label} must be a mapping")
-        case unreachable:
-            assert_never(unreachable)
-
-
-def text(mapping_value: JsonMap, key: str) -> str:
-    value = mapping_value.get(key)
-    match value:
-        case str():
-            return value
-        case int() | float() | bool() | list() | dict() | None:
-            raise ContractError("INVALID_SCHEMA", f"{key} must be text")
-        case unreachable:
-            assert_never(unreachable)
 
 
 def texts(mapping_value: JsonMap, key: str) -> tuple[str, ...]:
@@ -204,33 +176,24 @@ def validate_render(root: Path, feature: Feature) -> None:
     )
     if result.returncode != 0:
         raise ContractError("HELM_RENDER", result.stderr.strip())
+    expected_image = f"{text(feature.image, 'repository')}@{text(feature.image, 'digest')}"
+    policy = RenderPolicy(WorkloadIdentity(feature.name, expected_image), frozenset(ALLOWED_KINDS), frozenset(REQUIRED_LABELS))
     identities: set[tuple[str, str]] = set()
     for raw in yaml.safe_load_all(result.stdout):
         document = mapping(raw, "rendered resource")
-        kind = text(document, "kind")
-        if kind == "Secret" and ("data" in document or "stringData" in document):
-            raise ContractError("SECRET_PAYLOAD", feature.name)
-        if kind not in ALLOWED_KINDS:
-            raise ContractError("FORBIDDEN_KIND", kind)
-        metadata = mapping(document.get("metadata"), "metadata")
-        if "namespace" in metadata:
-            raise ContractError("HARDCODED_NAMESPACE", feature.name)
-        identities.add((kind, text(metadata, "name")))
-        labels = mapping(metadata.get("labels"), "labels")
-        if not REQUIRED_LABELS.issubset(labels):
-            raise ContractError("MISSING_LABEL", feature.name)
-        spec = mapping(document.get("spec"), "spec") if kind != "ConfigMap" else {}
-        match kind:
+        resource = validate_rendered_resource(document, policy)
+        identities.add((resource.kind, resource.name))
+        match resource.kind:
             case "ConfigMap":
                 pass
             case "CronJob":
-                if text(spec, "schedule") != "0 * * * *":
+                if text(resource.spec, "schedule") != "0 * * * *":
                     raise ContractError("WORKLOAD_CONTRACT", feature.name)
             case "Deployment":
-                if spec.get("replicas") != 1:
+                if resource.spec.get("replicas") != 1:
                     raise ContractError("WORKLOAD_CONTRACT", feature.name)
             case "Service":
-                ports = spec.get("ports")
+                ports = resource.spec.get("ports")
                 if not isinstance(ports, list) or not ports or mapping(ports[0], "service port").get("port") != 8080:
                     raise ContractError("WORKLOAD_CONTRACT", feature.name)
             case unreachable:

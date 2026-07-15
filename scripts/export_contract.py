@@ -2,14 +2,10 @@ from __future__ import annotations
 
 import json
 import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, TypeAlias
+from typing import Final
 
-import yaml
-
-JsonScalar: TypeAlias = str | int | float | bool | None
-JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
+from policy import ContractError, JsonValue, mapping, validate_source_yaml
 
 FEATURES: Final = ("batch-analyzer", "dataset-ingest", "report-generator")
 TEMPLATES: Final = {
@@ -23,41 +19,9 @@ RESOURCES: Final = {
 }
 
 
-@dataclass(frozen=True, slots=True)
-class ContractError(Exception):
-    category: str
-    detail: str
-
-    def __str__(self) -> str:
-        return f"{self.category}: {self.detail}"
-
-
 def entries(path: Path, ignored: set[str] | None = None) -> set[str]:
     excluded = ignored or set()
     return {item.name for item in path.iterdir()} - excluded
-
-
-def validate_source_yaml(root: Path) -> None:
-    from validate import mapping, text
-
-    metadata = {root / "features.yaml"}
-    metadata.update(root.glob("features/*/feature.yaml"))
-    metadata.update(root.glob("features/*/chart/Chart.yaml"))
-    metadata.update(root.glob("features/*/chart/values.yaml"))
-    for path in root.rglob("*.yaml"):
-        content = path.read_text(encoding="utf-8")
-        if path in metadata or "{{" in content:
-            continue
-        try:
-            documents = yaml.safe_load_all(content)
-            for raw in documents:
-                document = mapping(raw, str(path))
-                kind = text(document, "kind")
-                if kind == "Secret" and ("data" in document or "stringData" in document):
-                    raise ContractError("SECRET_PAYLOAD", str(path))
-                raise ContractError("FORBIDDEN_KIND", kind)
-        except yaml.YAMLError as error:
-            raise ContractError("MALFORMED_YAML", str(path)) from error
 
 
 def validate_exact_topology(root: Path) -> None:
@@ -69,7 +33,7 @@ def validate_exact_topology(root: Path) -> None:
         raise ContractError("TOPOLOGY_VIOLATION", "repository root")
     if entries(root / "schemas") != {"feature.schema.json"}:
         raise ContractError("TOPOLOGY_VIOLATION", "schemas")
-    if entries(root / "scripts") != {"validate.py", "export_contract.py"}:
+    if entries(root / "scripts") != {"validate.py", "export_contract.py", "policy.py"}:
         raise ContractError("TOPOLOGY_VIOLATION", "scripts")
     if entries(root / "tests") != {"test_contract.py"}:
         raise ContractError("TOPOLOGY_VIOLATION", "tests")
@@ -89,7 +53,7 @@ def validate_exact_topology(root: Path) -> None:
 
 
 def validate_context_and_values(root: Path) -> None:
-    from validate import load_yaml, mapping
+    from validate import load_yaml
 
     suspicious = (
         "token", "password", "passwd", "credential", "private key", "private_key",
