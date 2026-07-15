@@ -6,9 +6,45 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import TypeAlias, TypedDict
 
 import pytest
 import yaml
+
+
+class ImageYaml(TypedDict):
+    repository: str
+    tag: str
+    digest: str
+    sourceRevision: str
+
+
+class SpecYaml(TypedDict):
+    requires: list[str]
+    optional: list[str]
+    provides: list[str]
+    paths: dict[str, str]
+    image: ImageYaml
+
+
+class QuantityYaml(TypedDict):
+    cpu: str
+    memory: str
+
+
+class ResourcesYaml(TypedDict):
+    requests: QuantityYaml
+    limits: QuantityYaml
+
+
+class YamlMap(TypedDict, total=False):
+    features: list[str]
+    spec: SpecYaml
+    resources: ResourcesYaml
+
+
+YamlMutation: TypeAlias = Callable[[YamlMap], None]
+PathMutation: TypeAlias = Callable[[Path], None]
 
 ROOT = Path(__file__).parents[1]
 FEATURES = ("batch-analyzer", "dataset-ingest", "report-generator")
@@ -34,11 +70,11 @@ def copy_repository(tmp_path: Path) -> Path:
     return target
 
 
-def load_yaml(path: Path):
+def load_yaml(path: Path) -> YamlMap:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def save_yaml(path: Path, document) -> None:
+def save_yaml(path: Path, document: YamlMap) -> None:
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
 
@@ -46,7 +82,7 @@ def feature_file(root: Path, name: str) -> Path:
     return root / "features" / name / "feature.yaml"
 
 
-def mutate_feature(root: Path, name: str, mutation: Callable) -> None:
+def mutate_feature(root: Path, name: str, mutation: YamlMutation) -> None:
     path = feature_file(root, name)
     document = load_yaml(path)
     mutation(document)
@@ -114,39 +150,39 @@ def test_helm_render_has_exact_resource_identities(feature: str) -> None:
     assert resources == tuple(sorted(EXPECTED_RESOURCES[feature]))
 
 
-def duplicate_entry(document) -> None:
+def duplicate_entry(document: YamlMap) -> None:
     document["features"].append("report-generator")
 
 
-def unsorted_entry(document) -> None:
+def unsorted_entry(document: YamlMap) -> None:
     document["features"] = list(reversed(document["features"]))
 
 
-def unknown_dependency(document) -> None:
+def unknown_dependency(document: YamlMap) -> None:
     document["spec"]["requires"] = ["unknown-feature"]
 
 
-def self_dependency(document) -> None:
+def self_dependency(document: YamlMap) -> None:
     document["spec"]["requires"] = ["batch-analyzer"]
 
 
-def cycle_dependency(document) -> None:
+def cycle_dependency(document: YamlMap) -> None:
     document["spec"]["requires"] = ["report-generator"]
 
 
-def mutable_tag(document) -> None:
+def mutable_tag(document: YamlMap) -> None:
     document["spec"]["image"]["tag"] = "latest"
 
 
-def mutable_revision(document) -> None:
+def mutable_revision(document: YamlMap) -> None:
     document["spec"]["image"]["sourceRevision"] = "main"
 
 
-def missing_digest(document) -> None:
+def missing_digest(document: YamlMap) -> None:
     del document["spec"]["image"]["digest"]
 
 
-def missing_revision(document) -> None:
+def missing_revision(document: YamlMap) -> None:
     del document["spec"]["image"]["sourceRevision"]
 
 
@@ -178,7 +214,7 @@ def oversize_resources(root: Path) -> None:
         ("MISSING_SOURCE_REVISION", "dataset-ingest", missing_revision),
     ),
 )
-def test_validator_rejects_metadata_mutation(tmp_path: Path, category: str, target: str, mutation: Callable) -> None:
+def test_validator_rejects_metadata_mutation(tmp_path: Path, category: str, target: str, mutation: YamlMutation) -> None:
     # Given one malformed metadata mutation
     root = copy_repository(tmp_path)
     path = root / "features.yaml" if target == "index" else feature_file(root, target)
@@ -215,7 +251,7 @@ def test_validator_rejects_metadata_mutation(tmp_path: Path, category: str, targ
         ("RESOURCE_CONTRACT", oversize_resources),
     ),
 )
-def test_validator_rejects_repository_mutation(tmp_path: Path, category: str, mutation: Callable) -> None:
+def test_validator_rejects_repository_mutation(tmp_path: Path, category: str, mutation: PathMutation) -> None:
     # Given one malformed repository mutation
     root = copy_repository(tmp_path)
     mutation(root)
