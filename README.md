@@ -234,9 +234,12 @@ their repository-specific behavior differs.
   and
   `scalex-federation@74fe32eeb86b47fed80152362dae9b0dfecba126:templates/applications.yaml`,
   the root Helm chart iterates repository-keyed release entries containing
-  `repo`, immutable `revision`, and `enabled`; optional `path` and `values`
-  fields are release-only overrides, with omitted settings owned by each
-  feature chart. The current tree has no ApplicationSet: enabled entries render
+  `repo`, `revision`, and `enabled`; optional `path` and `values` fields are
+  release-only overrides, with omitted settings owned by each feature chart.
+  All ten current examples are disabled: the list has one real 40-hex SHA and
+  nine `REPLACE_WITH_FULL_GIT_SHA` placeholders. Only enabled entries must use a
+  full immutable Git SHA, and disabled placeholders render no child
+  Application. The current tree has no ApplicationSet: enabled entries render
   Argo Applications directly. Candidate A remains the producer-side package
   layout and contains no release catalog, Argo Application, or automated sync
   policy.
