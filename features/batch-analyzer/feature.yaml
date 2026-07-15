@@ -1,0 +1,21 @@
+apiVersion: temp-poc.netai.io/v1alpha1
+kind: Feature
+metadata:
+  name: batch-analyzer
+spec:
+  status: non-production
+  renderer: helm/v1
+  requires:
+    - dataset-ingest
+  optional: []
+  provides: []
+  paths:
+    source: src/README.md
+    image: image
+    chart: chart
+    tests: ../../tests/test_contract.py
+  image:
+    repository: registry.example.invalid/temp-poc/batch-analyzer
+    tag: 0.1.0-c57dcba
+    digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+    sourceRevision: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

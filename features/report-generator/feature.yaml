@@ -1,0 +1,21 @@
+apiVersion: temp-poc.netai.io/v1alpha1
+kind: Feature
+metadata:
+  name: report-generator
+spec:
+  status: non-production
+  renderer: helm/v1
+  requires:
+    - batch-analyzer
+  optional: []
+  provides: []
+  paths:
+    source: src/README.md
+    image: image
+    chart: chart
+    tests: ../../tests/test_contract.py
+  image:
+    repository: registry.example.invalid/temp-poc/report-generator
+    tag: 0.1.0-c57dcba
+    digest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+    sourceRevision: cccccccccccccccccccccccccccccccccccccccc

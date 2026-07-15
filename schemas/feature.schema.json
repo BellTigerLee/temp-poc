@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/temp-poc/feature.schema.json",
+  "title": "Feature package",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "temp-poc.netai.io/v1alpha1"},
+    "kind": {"const": "Feature"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {"name": {"enum": ["batch-analyzer", "dataset-ingest", "report-generator"]}}
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "renderer", "requires", "optional", "provides", "paths", "image"],
+      "properties": {
+        "status": {"const": "non-production"},
+        "renderer": {"const": "helm/v1"},
+        "requires": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "optional": {"type": "array", "maxItems": 0},
+        "provides": {"type": "array", "maxItems": 0},
+        "paths": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "image", "chart", "tests"],
+          "properties": {
+            "source": {"const": "src/README.md"},
+            "image": {"const": "image"},
+            "chart": {"const": "chart"},
+            "tests": {"const": "../../tests/test_contract.py"}
+          }
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "tag", "digest", "sourceRevision"],
+          "properties": {
+            "repository": {"type": "string", "pattern": "^registry\\.example\\.invalid/temp-poc/[a-z-]+$"},
+            "tag": {"const": "0.1.0-c57dcba"},
+            "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "sourceRevision": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+          }
+        }
+      }
+    }
+  }
+}

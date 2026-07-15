@@ -1,0 +1,16 @@
+schedule: "0 * * * *"
+image:
+  repository: registry.example.invalid/temp-poc/batch-analyzer
+  tag: 0.1.0-c57dcba
+  digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+  sourceRevision: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+existingSecret:
+  name: ""
+  key: ""
+resources:
+  requests:
+    cpu: 10m
+    memory: 16Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi

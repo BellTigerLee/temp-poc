@@ -1,0 +1,6 @@
+apiVersion: temp-poc.netai.io/v1alpha1
+kind: FeatureIndex
+features:
+  - batch-analyzer
+  - dataset-ingest
+  - report-generator
