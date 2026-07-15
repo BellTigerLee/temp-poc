@@ -151,9 +151,9 @@ The exporter writes deterministic canonical JSON for later candidate comparison.
 | Feature identity and direct dependencies | `features/<feature>/feature.yaml` | Package-owned, then aggregated and checked by repository tooling, **repository-observed**. |
 | Package index and graph validation | Root `features.yaml`, schema, scripts, and tests | Repository-owned. The root index names packages, while feature descriptors own edges. |
 | Release and environment values | Not assigned in Candidate A | **operationally-unverified**. No deployment-owned values or promotion record exists here. |
-| Existing runtime Secret | External prerequisite | Charts accept only an existing Secret name and key. Secret creation, payload, rotation, and delivery are outside this repository. |
-| OBC and shared object storage | Unresolved | Candidate A creates neither `ObjectBucketClaim` nor storage infrastructure. Existing references disagree on the eventual owner. |
-| Karmada placement and override policy | Unresolved external concern | Candidate A contains no PropagationPolicy, OverridePolicy, cluster selection, or Federation release. |
+| Existing runtime Secret | External prerequisite | Charts accept only an existing Secret name and key. Current ScaleX main assigns Infra-created credentials and bucket names to a common runtime-binding runner; creation, payload, rotation, and delivery remain outside this repository and **operationally-unverified** here. |
+| OBC and workload namespace | Target `*-k8s` Infra repository | Current EECS and ScaleX main agree that Infra owns OBC and workload-namespace lifecycle. Candidate A creates neither and remains reference-only, **repository-observed** and **operationally-unverified**. |
+| Karmada placement and override policy | Federation prerequisite | Current ScaleX main assigns workload placement and replica overrides to Federation. Candidate A contains no PropagationPolicy, OverridePolicy, cluster selection, or Federation release. |
 
 ## Six-axis scorecard
 
@@ -167,7 +167,7 @@ property. They compare the layout, not workload quality.
 | Release/version boundary | 3 | A chart and image contract can change within one directory, but every package still shares the repository commit SHA and branch history. Independent artifact promotion is not implemented. | **repository-observed**, **operationally-unverified** |
 | Instance-values ownership | 1 | The producer charts define defaults only. Environment values, release selection, and deployment approval have no owner in this candidate. | **repository-observed**, **operationally-unverified** |
 | Source topology | 4 | Feature work is easy to locate and review locally. Shared helpers, label logic, schemas, Containerfile shape, and defaults are repeated across packages. | **repository-observed** |
-| Shared-resource ownership | 1 | Secret lifecycle, OBC ownership, object-storage prerequisites, and Karmada placement or override policy ownership remain deliberately unresolved. | **operationally-unverified** |
+| Shared-resource ownership | 1 | Candidate A encodes none of these owners. Current references assign OBC and workload namespaces to Infra, runtime binding to a management-plane runner, and Karmada placement or overrides to Federation; all remain external and untested by this producer sample. | **repository-observed**, **operationally-unverified** |
 
 ## Strengths
 
@@ -192,15 +192,18 @@ property. They compare the layout, not workload quality.
   features. That is not a one-to-one identity match. Adoption requires either
   splitting the packages into repositories or changing the Federation identity
   contract. This repository proves neither option.
-- OBC ownership conflicts remain open. EECS documentation assigns application
-  OBCs to feature charts, while the architecture review records an active POC
-  where Federation dependencies own the OBC. Candidate A chooses neither and
-  renders no OBC.
-- Existing Secret creation and delivery have no assigned owner. The charts only
-  accept a reference, and empty defaults render no Secret reference.
-- Karmada PropagationPolicy and OverridePolicy ownership is also unassigned.
-  Candidate A intentionally renders neither policy kind, so it cannot satisfy a
-  Federation contract that requires an active chart to render placement policy.
+- The earlier architecture review records a historical OBC ownership conflict
+  between feature-chart and Federation-dependency approaches. That is not the
+  current contract. EECS main at
+  `c459082fe247044c440aeb1280d6a3569d6f7de6` and ScaleX main at
+  `421272628ce2a11881f1f32c3fe546662925d484` consistently assign OBC and
+  workload-namespace lifecycle to the target `*-k8s` Infra repository.
+  Candidate A follows the producer side of that boundary: it renders no OBC or
+  Namespace and references only existing runtime Secret names and keys.
+- Candidate A does not implement the current external handoff. ScaleX main
+  assigns Infra-created credential and bucket-name normalization to a common
+  runtime-binding runner, and assigns Karmada workload placement and replica
+  overrides to Federation. Those paths remain **operationally-unverified** here.
 
 ## Reference comparison
 
@@ -216,26 +219,39 @@ their repository-specific behavior differs.
   Lines 70-86 classify feature-bundle and registry layouts as neutral local
   render experiments. Lines 88-116 assign producer artifacts to the child while
   excluding Secret, OBC, and Karmada policy creation. Lines 120-133 record the
-  OBC conflict and the limit of static and render evidence. Candidate A applies
-  those evidence limits but tests a different, feature-co-located topology.
+  now-historical OBC conflict and the limit of static and render evidence.
+  Candidate A applies those evidence limits but uses the current ownership
+  contract cited below and tests a different, feature-co-located topology.
 - `scalex-federation@experiment/release-per-directory:releases/README.md` and
   `docs/structure-variant.md` bind one release directory to one feature
   repository name. `docs/ci-promotion.md` expects immutable promotion inputs and
   an active chart to render Karmada placement policy. Candidate A's three
   internal feature names do not match that repository-name identity, and its
   charts intentionally contain no placement policy or promotion automation.
-- `scalex-federation@experiment/single-values-catalog:values.yaml` centralizes
-  releases and inline values in one catalog, while
-  `bootstrap/applicationset.yaml` selects active entries and enables automated
-  sync. Candidate A is the opposite producer-side package layout. It contains
-  no active release catalog, ApplicationSet, or automated sync policy.
+- Live `origin/experiment/single-values-catalog` resolves to
+  `74fe32eeb86b47fed80152362dae9b0dfecba126`. At the immutable paths
+  `scalex-federation@74fe32eeb86b47fed80152362dae9b0dfecba126:values.yaml`
+  and
+  `scalex-federation@74fe32eeb86b47fed80152362dae9b0dfecba126:templates/applications.yaml`,
+  the root Helm chart iterates repository-keyed release entries containing
+  `repo`, immutable `revision`, and `enabled`; optional `path` and `values`
+  fields are release-only overrides, with omitted settings owned by each
+  feature chart. The current tree has no ApplicationSet: enabled entries render
+  Argo Applications directly. Candidate A remains the producer-side package
+  layout and contains no release catalog, Argo Application, or automated sync
+  policy.
 - `eecs-k8s/apps/template/features.yaml` and
   `eecs-k8s/templates/applications.yaml:7-85,232-399` keep a large parent-owned
   feature graph and generate Argo Applications from parent manifests.
   `eecs-k8s/apps/template/application.yaml:48-128` composes sources and sync
   policy. Candidate A's small graph belongs to the producer repository and is
-  not auto-discovered by those templates. `eecs-k8s/README.md:77-87` assigns
-  application OBCs to feature charts, which Candidate A leaves unresolved.
+  not auto-discovered by those templates. Current
+  `eecs-k8s@c459082fe247044c440aeb1280d6a3569d6f7de6:README.md` assigns OBC and
+  workload-namespace lifecycle to the target Infra repository and limits
+  Federation to workloads and non-secret runtime bindings. Current
+  `scalex-federation@421272628ce2a11881f1f32c3fe546662925d484:docs/common-contract.md`
+  agrees and keeps feature charts reference-only. Candidate A follows that
+  producer restriction but does not operationally verify the external handoff.
   `eecs-k8s/images/openark-kiss-ipxe/Containerfile` is a templated, multi-stage
   production build; Candidate A uses static `.invalid` fixture bases and copies
   only `payload.txt`.
