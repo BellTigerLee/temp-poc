@@ -20,6 +20,8 @@ BLOCK_HEADER: Final = re.compile(r"[>|][+-]?[0-9]?[ \t]*(?:#.*)?")
 BLOCK_VALUE: Final = re.compile(r"([A-Za-z][A-Za-z0-9.-]*)")
 SECRET_PAYLOAD_FIELD: Final = re.compile(r"(?m)(?:^|[{,])[ \t]*(?:\?[ \t]+)?[\"']?(?:data|stringData)[\"']?[ \t]*:")
 YAML_DOCUMENT: Final = re.compile(r"(?m)^---[ \t]*$")
+HELM_COMMENT: Final = re.compile(r"{{-?[ \t]*/\*.*?\*/[ \t]*-?}}", re.DOTALL)
+BLOCK_SCALAR_FIELD: Final = re.compile(r"^(?P<indent> *)(?P<key>[\"']?[A-Za-z][A-Za-z0-9.-]*[\"']?)[ \t]*:[ \t]*[>|][+-]?[0-9]?[ \t]*(?:#.*)?$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +111,25 @@ def declared_kind(document: str, match: re.Match[str]) -> str:
     return block_kind(" ".join(block))
 
 
+def source_policy_text(content: str) -> str:
+    uncommented = HELM_COMMENT.sub(lambda matched: "\n" * matched.group().count("\n"), content)
+    masked: list[str] = []
+    block_indent: int | None = None
+    for line in uncommented.splitlines(keepends=True):
+        text_line = line.rstrip("\r\n")
+        indent = len(text_line) - len(text_line.lstrip(" "))
+        if block_indent is not None:
+            if not text_line.strip() or indent > block_indent:
+                masked.append("\n" if line.endswith("\n") else "")
+                continue
+            block_indent = None
+        matched = BLOCK_SCALAR_FIELD.fullmatch(text_line)
+        if matched is not None and matched.group("key").strip("\"'") != "kind":
+            block_indent = len(matched.group("indent"))
+        masked.append(line)
+    return "".join(masked)
+
+
 def validate_source_yaml(root: Path) -> None:
     metadata = {root / "features.yaml"}
     metadata.update(root.glob("features/*/feature.yaml"))
@@ -121,7 +142,7 @@ def validate_source_yaml(root: Path) -> None:
         if path.is_file()
     }
     for path in sorted(templates):
-        content = path.read_text(encoding="utf-8")
+        content = source_policy_text(path.read_text(encoding="utf-8"))
         for document in YAML_DOCUMENT.split(content):
             matches = (*KIND_KEY.finditer(document), *EXPLICIT_KIND_KEY.finditer(document), *FLOW_EXPLICIT_KIND_KEY.finditer(document))
             for match in matches:

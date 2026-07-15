@@ -227,57 +227,12 @@ def render_mutable_init_container(root: Path) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def append_helper_template(root: Path, content: str) -> None:
-    path = root / "features/dataset-ingest/chart/templates/_helpers.tpl"
-    path.write_text(path.read_text(encoding="utf-8") + content, encoding="utf-8")
+def append_helper_template(content: str) -> PathMutation:
+    def mutate(root: Path) -> None:
+        path = root / "features/dataset-ingest/chart/templates/_helpers.tpl"
+        path.write_text(path.read_text(encoding="utf-8") + content, encoding="utf-8")
 
-
-def hide_dormant_forbidden_kind(root: Path) -> None:
-    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: dormant-forbidden\n{{- end }}\n")
-
-
-def hide_dormant_secret_payload(root: Path) -> None:
-    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: dormant-secret\nstringData:\n  token: exposed\n{{- end }}\n")
-
-
-def hide_dormant_block_scalar_kind(root: Path) -> None:
-    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\nkind: >-\n  Namespace\nmetadata:\n  name: dormant-block-scalar\n{{- end }}\n")
-
-
-def hide_dynamic_kind_suffix(root: Path) -> None:
-    append_helper_template(root, '\n{{- if false }}\n---\napiVersion: v1\nkind: "Deployment{{ .Values.suffix }}"\nmetadata:\n  name: dormant-dynamic\n{{- end }}\n')
-
-
-def hide_plain_scalar_dynamic_suffix(root: Path) -> None:
-    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\nkind: Deployment#{{ .Values.suffix }}\nmetadata:\n  name: dormant-plain-dynamic\n{{- end }}\n")
-
-
-def hide_plain_scalar_comma_suffix(root: Path) -> None:
-    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\nkind: Deployment,{{ .Values.suffix }}\nmetadata:\n  name: dormant-comma-dynamic\n{{- end }}\n")
-
-
-def hide_block_scalar_dynamic_suffix(root: Path) -> None:
-    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\nkind: >-\n  Deployment #{{ .Values.suffix }}\nmetadata:\n  name: dormant-block-dynamic\n{{- end }}\n")
-
-
-def hide_block_scalar_leading_blank(root: Path) -> None:
-    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\nkind: >-\n\n  Deployment\nmetadata:\n  name: dormant-block-blank\n{{- end }}\n")
-
-
-def hide_explicit_mapping_kind(root: Path) -> None:
-    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\n? kind\n: Namespace\nmetadata:\n  name: dormant-explicit\n{{- end }}\n")
-
-
-def hide_commented_explicit_kind(root: Path) -> None:
-    append_helper_template(root, "\n{{- if false }}\n---\napiVersion: v1\n? kind # resource type\n: Namespace\nmetadata:\n  name: dormant-explicit-comment\n{{- end }}\n")
-
-
-def hide_flow_explicit_kind(root: Path) -> None:
-    append_helper_template(root, '\n{{- if false }}\n---\n{? "kind" : "Namespace", "apiVersion": "v1", "metadata": {"name": "dormant"}}\n{{- end }}\n')
-
-
-def hide_flow_explicit_secret(root: Path) -> None:
-    append_helper_template(root, '\n{{- if false }}\n---\n{? "kind" : "Secret", ? "apiVersion" : "v1", ? "metadata" : {"name": "dormant"}, ? "stringData" : {"token": "exposed"}}\n{{- end }}\n')
+    return mutate
 
 
 @pytest.mark.parametrize(
@@ -351,18 +306,22 @@ def test_validator_rejects_repository_mutation(tmp_path: Path, category: str, mu
         pytest.param("WORKLOAD_IMAGE", render_latest_image, id="rendered-latest-container"),
         pytest.param("WORKLOAD_IMAGE", render_wrong_digest, id="rendered-wrong-digest"),
         pytest.param("WORKLOAD_IMAGE", render_mutable_init_container, id="rendered-mutable-init-container"),
-        pytest.param("FORBIDDEN_KIND", hide_dormant_forbidden_kind, id="dormant-forbidden-kind"),
-        pytest.param("SECRET_PAYLOAD", hide_dormant_secret_payload, id="dormant-secret-payload"),
-        pytest.param("FORBIDDEN_KIND", hide_dormant_block_scalar_kind, id="dormant-block-scalar-kind"),
-        pytest.param("FORBIDDEN_KIND", hide_dynamic_kind_suffix, id="dormant-dynamic-kind-suffix"),
-        pytest.param("FORBIDDEN_KIND", hide_plain_scalar_dynamic_suffix, id="dormant-plain-dynamic-suffix"),
-        pytest.param("FORBIDDEN_KIND", hide_plain_scalar_comma_suffix, id="dormant-plain-comma-suffix"),
-        pytest.param("FORBIDDEN_KIND", hide_block_scalar_dynamic_suffix, id="dormant-block-dynamic-suffix"),
-        pytest.param("FORBIDDEN_KIND", hide_block_scalar_leading_blank, id="dormant-block-leading-blank"),
-        pytest.param("FORBIDDEN_KIND", hide_explicit_mapping_kind, id="dormant-explicit-mapping-key"),
-        pytest.param("FORBIDDEN_KIND", hide_commented_explicit_kind, id="dormant-commented-explicit-key"),
-        pytest.param("FORBIDDEN_KIND", hide_flow_explicit_kind, id="dormant-flow-explicit-key"),
-        pytest.param("SECRET_PAYLOAD", hide_flow_explicit_secret, id="dormant-flow-explicit-secret"),
+        pytest.param("FORBIDDEN_KIND", append_helper_template("\n{{- if false }}\n---\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: dormant-forbidden\n{{- end }}\n"), id="dormant-forbidden-kind"),
+        pytest.param("FORBIDDEN_KIND", append_helper_template('\n{{- if false }}\n---\napiVersion: v1\nkind: "Namespace"\nmetadata:\n  name: dormant-quoted\n{{- end }}\n'), id="dormant-quoted-kind"),
+        pytest.param("FORBIDDEN_KIND", append_helper_template('\n{{- if false }}\n---\napiVersion: v1\nkind: {{ "Namespace" }}\nmetadata:\n  name: dormant-templated\n{{- end }}\n'), id="dormant-templated-kind"),
+        pytest.param("FORBIDDEN_KIND", append_helper_template("\n{{- if false }}\n---\napiVersion: v1\n{{/* harmless */}}kind: Namespace\nmetadata:\n  name: dormant-comment-prefix\n{{- end }}\n"), id="dormant-comment-prefixed-kind"),
+        pytest.param("FORBIDDEN_KIND", append_helper_template("\n{{- if false }}\n---\napiVersion: v1\n{{- /* harmless */ -}}kind: Namespace\nmetadata:\n  name: dormant-trim-comment-prefix\n{{- end }}\n"), id="dormant-trim-comment-prefixed-kind"),
+        pytest.param("SECRET_PAYLOAD", append_helper_template("\n{{- if false }}\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: dormant-secret\nstringData:\n  token: exposed\n{{- end }}\n"), id="dormant-secret-payload"),
+        pytest.param("FORBIDDEN_KIND", append_helper_template("\n{{- if false }}\n---\napiVersion: v1\nkind: >-\n  Namespace\nmetadata:\n  name: dormant-block-scalar\n{{- end }}\n"), id="dormant-block-scalar-kind"),
+        pytest.param("FORBIDDEN_KIND", append_helper_template('\n{{- if false }}\n---\napiVersion: v1\nkind: "Deployment{{ .Values.suffix }}"\nmetadata:\n  name: dormant-dynamic\n{{- end }}\n'), id="dormant-dynamic-kind-suffix"),
+        pytest.param("FORBIDDEN_KIND", append_helper_template("\n{{- if false }}\n---\napiVersion: v1\nkind: Deployment#{{ .Values.suffix }}\nmetadata:\n  name: dormant-plain-dynamic\n{{- end }}\n"), id="dormant-plain-dynamic-suffix"),
+        pytest.param("FORBIDDEN_KIND", append_helper_template("\n{{- if false }}\n---\napiVersion: v1\nkind: Deployment,{{ .Values.suffix }}\nmetadata:\n  name: dormant-comma-dynamic\n{{- end }}\n"), id="dormant-plain-comma-suffix"),
+        pytest.param("FORBIDDEN_KIND", append_helper_template("\n{{- if false }}\n---\napiVersion: v1\nkind: >-\n  Deployment #{{ .Values.suffix }}\nmetadata:\n  name: dormant-block-dynamic\n{{- end }}\n"), id="dormant-block-dynamic-suffix"),
+        pytest.param("FORBIDDEN_KIND", append_helper_template("\n{{- if false }}\n---\napiVersion: v1\nkind: >-\n\n  Deployment\nmetadata:\n  name: dormant-block-blank\n{{- end }}\n"), id="dormant-block-leading-blank"),
+        pytest.param("FORBIDDEN_KIND", append_helper_template("\n{{- if false }}\n---\napiVersion: v1\n? kind\n: Namespace\nmetadata:\n  name: dormant-explicit\n{{- end }}\n"), id="dormant-explicit-mapping-key"),
+        pytest.param("FORBIDDEN_KIND", append_helper_template("\n{{- if false }}\n---\napiVersion: v1\n? kind # resource type\n: Namespace\nmetadata:\n  name: dormant-explicit-comment\n{{- end }}\n"), id="dormant-commented-explicit-key"),
+        pytest.param("FORBIDDEN_KIND", append_helper_template('\n{{- if false }}\n---\n{? "kind" : "Namespace", "apiVersion": "v1", "metadata": {"name": "dormant"}}\n{{- end }}\n'), id="dormant-flow-explicit-key"),
+        pytest.param("SECRET_PAYLOAD", append_helper_template('\n{{- if false }}\n---\n{? "kind" : "Secret", ? "apiVersion" : "v1", ? "metadata" : {"name": "dormant"}, ? "stringData" : {"token": "exposed"}}\n{{- end }}\n'), id="dormant-flow-explicit-secret"),
     ),
 )
 def test_validator_rejects_hidden_render_policy_violation(tmp_path: Path, category: str, mutation: PathMutation) -> None:
@@ -377,3 +336,21 @@ def test_validator_rejects_hidden_render_policy_violation(tmp_path: Path, catego
     assert result.returncode == 1
     assert result.stderr.startswith(f"{category}:")
     assert result.stdout == ""
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        pytest.param(append_helper_template("\n{{/* kind: Namespace */}}\n"), id="helm-comment"),
+        pytest.param(append_helper_template("\n{{- if false }}\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: dormant-allowed\ndata:\n  example: |-\n    kind: Namespace\n{{- end }}\n"), id="block-scalar"),
+    ),
+)
+def test_validator_accepts_harmless_template_source(tmp_path: Path, mutation: PathMutation) -> None:
+    root = copy_repository(tmp_path)
+    mutation(root)
+
+    result = run_validator(root)
+
+    assert result.returncode == 0
+    assert result.stdout == "VALID: feature package contract\n"
+    assert result.stderr == ""
