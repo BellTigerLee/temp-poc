@@ -201,30 +201,12 @@ def oversize_resources(root: Path) -> None:
     save_yaml(path, document)
 
 
-def deployment_template(root: Path) -> Path:
-    return root / "features/dataset-ingest/chart/templates/deployment.yaml"
+def replace_chart_template(relative: str, old: str, new: str) -> PathMutation:
+    def mutate(root: Path) -> None:
+        path = root / relative
+        path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
 
-
-def render_latest_image(root: Path) -> None:
-    path = deployment_template(root)
-    content = path.read_text(encoding="utf-8").replace('image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"', 'image: "nginx:latest"')
-    path.write_text(content, encoding="utf-8")
-
-
-def render_wrong_digest(root: Path) -> None:
-    path = deployment_template(root)
-    image = "registry.example.invalid/temp-poc/dataset-ingest@sha256:" + "f" * 64
-    content = path.read_text(encoding="utf-8").replace('image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"', f'image: "{image}"')
-    path.write_text(content, encoding="utf-8")
-
-
-def render_mutable_init_container(root: Path) -> None:
-    path = deployment_template(root)
-    content = path.read_text(encoding="utf-8").replace(
-        "    spec:\n      containers:",
-        "    spec:\n      initContainers:\n        - name: unsafe-init\n          image: nginx:latest\n      containers:",
-    )
-    path.write_text(content, encoding="utf-8")
+    return mutate
 
 
 def append_helper_template(content: str) -> PathMutation:
@@ -233,6 +215,12 @@ def append_helper_template(content: str) -> PathMutation:
         path.write_text(path.read_text(encoding="utf-8") + content, encoding="utf-8")
 
     return mutate
+
+
+def add_decoy_regular_container(root: Path) -> None:
+    path = root / "features/dataset-ingest/chart/templates/deployment.yaml"
+    content = path.read_text(encoding="utf-8").replace("spec:\n", 'containers:\n  - name: decoy\n    image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"\nspec:\n', 1).replace("      containers:\n", "      unrelated:\n")
+    path.write_text(content, encoding="utf-8")
 
 
 @pytest.mark.parametrize(
@@ -303,10 +291,16 @@ def test_validator_rejects_repository_mutation(tmp_path: Path, category: str, mu
 @pytest.mark.parametrize(
     ("category", "mutation"),
     (
-        pytest.param("WORKLOAD_IMAGE", render_latest_image, id="rendered-latest-container"),
-        pytest.param("WORKLOAD_IMAGE", render_wrong_digest, id="rendered-wrong-digest"),
-        pytest.param("WORKLOAD_IMAGE", render_mutable_init_container, id="rendered-mutable-init-container"),
+        pytest.param("WORKLOAD_IMAGE", replace_chart_template("features/dataset-ingest/chart/templates/deployment.yaml", 'image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"', 'image: "nginx:latest"'), id="rendered-latest-container"),
+        pytest.param("WORKLOAD_IMAGE", replace_chart_template("features/dataset-ingest/chart/templates/deployment.yaml", 'image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"', 'image: "registry.example.invalid/temp-poc/dataset-ingest@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'), id="rendered-wrong-digest"),
+        pytest.param("WORKLOAD_IMAGE", replace_chart_template("features/dataset-ingest/chart/templates/deployment.yaml", "    spec:\n      containers:", "    spec:\n      initContainers:\n        - name: unsafe-init\n          image: nginx:latest\n      containers:"), id="rendered-mutable-init-container"),
+        pytest.param("WORKLOAD_CONTRACT", replace_chart_template("features/dataset-ingest/chart/templates/deployment.yaml", "      containers:\n", "      unrelated:\n"), id="deployment-without-containers"),
+        pytest.param("WORKLOAD_CONTRACT", replace_chart_template("features/batch-analyzer/chart/templates/cronjob.yaml", "          containers:\n", "          unrelated:\n"), id="cronjob-without-containers"),
+        pytest.param("WORKLOAD_CONTRACT", replace_chart_template("features/dataset-ingest/chart/templates/deployment.yaml", "      containers:\n", "      initContainers:\n"), id="deployment-init-only"),
+        pytest.param("WORKLOAD_CONTRACT", replace_chart_template("features/batch-analyzer/chart/templates/cronjob.yaml", "          containers:\n", "          initContainers:\n"), id="cronjob-init-only"),
+        pytest.param("WORKLOAD_CONTRACT", add_decoy_regular_container, id="deployment-decoy-container-outside-pod-template"),
         pytest.param("FORBIDDEN_KIND", append_helper_template("\n{{- if false }}\n---\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: dormant-forbidden\n{{- end }}\n"), id="dormant-forbidden-kind"),
+        pytest.param("FORBIDDEN_KIND", append_helper_template('\n{{- if false }}\n---\napiVersion: v1\n{{ print "kind" }}: Namespace\nmetadata:\n  name: dormant-templated-key\n{{- end }}\n'), id="dormant-templated-mapping-key"),
         pytest.param("FORBIDDEN_KIND", append_helper_template('\n{{- if false }}\n---\napiVersion: v1\nkind: "Namespace"\nmetadata:\n  name: dormant-quoted\n{{- end }}\n'), id="dormant-quoted-kind"),
         pytest.param("FORBIDDEN_KIND", append_helper_template('\n{{- if false }}\n---\napiVersion: v1\nkind: {{ "Namespace" }}\nmetadata:\n  name: dormant-templated\n{{- end }}\n'), id="dormant-templated-kind"),
         pytest.param("FORBIDDEN_KIND", append_helper_template("\n{{- if false }}\n---\napiVersion: v1\n{{/* harmless */}}kind: Namespace\nmetadata:\n  name: dormant-comment-prefix\n{{- end }}\n"), id="dormant-comment-prefixed-kind"),

@@ -5,12 +5,11 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, assert_never
 
-import yaml
+sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from export_contract import validate_context_and_values, validate_static_repository
-from policy import ContractError, JsonMap, JsonValue, RenderPolicy, WorkloadIdentity, assert_never, mapping, text, validate_rendered_resource
+from scripts.policy import ContractError, JsonMap, RenderPolicy, RenderedResource, WorkloadIdentity, exact_keys, load_yaml, mapping, text, texts, validate_context_and_values, validate_rendered_resource, validate_source_yaml, yaml_documents
 
 FEATURES: Final = ("batch-analyzer", "dataset-ingest", "report-generator")
 GRAPH: Final = {
@@ -25,6 +24,11 @@ RESOURCE_NAMES: Final = {
     "dataset-ingest": {("ConfigMap", "comparison-dataset-ingest-config"), ("Deployment", "comparison-dataset-ingest"), ("Service", "comparison-dataset-ingest")},
     "report-generator": {("ConfigMap", "comparison-report-generator-config"), ("Deployment", "comparison-report-generator"), ("Service", "comparison-report-generator")},
 }
+TEMPLATES: Final = {
+    "batch-analyzer": {"_helpers.tpl", "configmap.yaml", "cronjob.yaml"},
+    "dataset-ingest": {"_helpers.tpl", "configmap.yaml", "deployment.yaml", "service.yaml"},
+    "report-generator": {"_helpers.tpl", "configmap.yaml", "deployment.yaml", "service.yaml"},
+}
 IMAGE_ENTRIES: Final = {".containerignore", "Containerfile", "payload.txt"}
 HEX64: Final = re.compile(r"sha256:[0-9a-f]{64}\Z")
 HEX40: Final = re.compile(r"[0-9a-f]{40}\Z")
@@ -38,29 +42,32 @@ class Feature:
     image: JsonMap
 
 
-def load_yaml(path: Path) -> JsonValue:
-    try:
-        return yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as error:
-        raise ContractError("MALFORMED_YAML", str(path)) from error
+def entries(path: Path, ignored: set[str] | None = None) -> set[str]:
+    return {item.name for item in path.iterdir()} - (ignored or set())
 
 
-def texts(mapping_value: JsonMap, key: str) -> tuple[str, ...]:
-    value = mapping_value.get(key)
-    match value:
-        case list():
-            if not all(isinstance(item, str) for item in value):
-                raise ContractError("INVALID_SCHEMA", f"{key} must contain text")
-            return tuple(item for item in value if isinstance(item, str))
-        case str() | int() | float() | bool() | dict() | None:
-            raise ContractError("INVALID_SCHEMA", f"{key} must be a list")
-        case unreachable:
-            assert_never(unreachable)
+def validate_exact_topology(root: Path) -> None:
+    if not (root / "schemas/feature.schema.json").is_file():
+        raise ContractError("MISSING_ARTIFACT", "schemas/feature.schema.json")
+    root_entries = entries(root)
+    root_entries.discard(".git")
+    if root_entries != {"README.md", "features", "features.yaml", "schemas", "scripts", "tests"}:
+        raise ContractError("TOPOLOGY_VIOLATION", "repository root")
+    if entries(root / "schemas") != {"feature.schema.json"} or entries(root / "scripts") != {"validate.py", "export_contract.py", "policy.py"}:
+        raise ContractError("TOPOLOGY_VIOLATION", "support files")
+    if entries(root / "tests") != {"test_contract.py"}:
+        raise ContractError("TOPOLOGY_VIOLATION", "tests")
+    for name in FEATURES:
+        package = root / "features" / name
+        chart = package / "chart"
+        if entries(package) != {"feature.yaml", "src", "image", "chart"} or entries(package / "src") != {"README.md"}:
+            raise ContractError("TOPOLOGY_VIOLATION", name)
+        if entries(chart) != {"Chart.yaml", "values.yaml", "values.schema.json", "templates"} or entries(chart / "templates") != TEMPLATES[name]:
+            raise ContractError("TOPOLOGY_VIOLATION", f"{name}.chart")
 
 
-def exact_keys(value: JsonMap, expected: set[str], label: str) -> None:
-    if set(value) != expected:
-        raise ContractError("INVALID_SCHEMA", f"{label} fields")
+def validate_static_repository(root: Path) -> None:
+    validate_source_yaml(root)
 
 
 def parse_feature(root: Path, name: str) -> Feature:
@@ -163,6 +170,25 @@ def validate_image(root: Path, feature: Feature) -> None:
         raise ContractError("CONTAINERFILE", feature.name)
 
 
+def validate_resource_contract(resource: RenderedResource, feature_name: str) -> None:
+    if resource.kind == "ConfigMap":
+        return
+    if resource.kind == "CronJob":
+        if text(resource.spec, "schedule") != "0 * * * *":
+            raise ContractError("WORKLOAD_CONTRACT", feature_name)
+        return
+    if resource.kind == "Deployment":
+        if resource.spec.get("replicas") != 1:
+            raise ContractError("WORKLOAD_CONTRACT", feature_name)
+        return
+    if resource.kind == "Service":
+        ports = resource.spec.get("ports")
+        if not isinstance(ports, list) or not ports or mapping(ports[0], "service port").get("port") != 8080:
+            raise ContractError("WORKLOAD_CONTRACT", feature_name)
+        return
+    assert_never(resource.kind)
+
+
 def validate_render(root: Path, feature: Feature) -> None:
     chart = root / "features" / feature.name / "chart"
     chart_metadata = mapping(load_yaml(chart / "Chart.yaml"), "Chart.yaml")
@@ -179,25 +205,11 @@ def validate_render(root: Path, feature: Feature) -> None:
     expected_image = f"{text(feature.image, 'repository')}@{text(feature.image, 'digest')}"
     policy = RenderPolicy(WorkloadIdentity(feature.name, expected_image), frozenset(ALLOWED_KINDS), frozenset(REQUIRED_LABELS))
     identities: set[tuple[str, str]] = set()
-    for raw in yaml.safe_load_all(result.stdout):
+    for raw in yaml_documents(result.stdout):
         document = mapping(raw, "rendered resource")
         resource = validate_rendered_resource(document, policy)
         identities.add((resource.kind, resource.name))
-        match resource.kind:
-            case "ConfigMap":
-                pass
-            case "CronJob":
-                if text(resource.spec, "schedule") != "0 * * * *":
-                    raise ContractError("WORKLOAD_CONTRACT", feature.name)
-            case "Deployment":
-                if resource.spec.get("replicas") != 1:
-                    raise ContractError("WORKLOAD_CONTRACT", feature.name)
-            case "Service":
-                ports = resource.spec.get("ports")
-                if not isinstance(ports, list) or not ports or mapping(ports[0], "service port").get("port") != 8080:
-                    raise ContractError("WORKLOAD_CONTRACT", feature.name)
-            case unreachable:
-                assert_never(unreachable)
+        validate_resource_contract(resource, feature.name)
     if identities != RESOURCE_NAMES[feature.name]:
         raise ContractError("RESOURCE_IDENTITY", feature.name)
 
@@ -210,7 +222,8 @@ def validate_repository(root: Path) -> tuple[Feature, ...]:
     for feature in features:
         validate_paths(root, feature)
         validate_image(root, feature)
-    validate_context_and_values(root)
+    validate_exact_topology(root)
+    validate_context_and_values(root, FEATURES)
     for feature in features:
         validate_render(root, feature)
     return features
@@ -226,7 +239,7 @@ def parse_root(arguments: list[str]) -> Path:
 
 def main() -> int:
     try:
-        validate_repository(parse_root(sys.argv[1:]))
+        _ = validate_repository(parse_root(sys.argv[1:]))
     except ContractError as error:
         print(error, file=sys.stderr)
         return 1
