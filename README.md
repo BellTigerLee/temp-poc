@@ -50,6 +50,7 @@ In dependency notation:
 │   └── feature.schema.json
 ├── scripts/
 │   ├── export_contract.py
+│   ├── policy.py
 │   └── validate.py
 ├── tests/
 │   └── test_contract.py
