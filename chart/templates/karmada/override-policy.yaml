@@ -6,7 +6,6 @@ metadata:
   labels:
     {{- include "temp-poc.labels" . | nindent 4 }}
 spec:
-  overriders: {}
   resourceSelectors:
     - apiVersion: v1
       kind: Service
@@ -32,7 +31,6 @@ metadata:
   labels:
     {{- include "temp-poc.labels" . | nindent 4 }}
 spec:
-  overriders: {}
   resourceSelectors:
     - apiVersion: v1
       kind: Service
