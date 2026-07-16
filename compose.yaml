@@ -1,0 +1,20 @@
+name: temp-poc
+
+services:
+  dataset-ingest:
+    image: ${IMAGE_REGISTRY:-docker.io/belltigerlee}/temp-poc-dataset-ingest:sha-${SOURCE_REVISION:?SOURCE_REVISION is required}
+    build:
+      context: .
+      dockerfile: images/dataset-ingest/Dockerfile
+
+  batch-analyzer:
+    image: ${IMAGE_REGISTRY:-docker.io/belltigerlee}/temp-poc-batch-analyzer:sha-${SOURCE_REVISION:?SOURCE_REVISION is required}
+    build:
+      context: .
+      dockerfile: images/batch-analyzer/Dockerfile
+
+  report-generator:
+    image: ${IMAGE_REGISTRY:-docker.io/belltigerlee}/temp-poc-report-generator:sha-${SOURCE_REVISION:?SOURCE_REVISION is required}
+    build:
+      context: .
+      dockerfile: images/report-generator/Dockerfile
