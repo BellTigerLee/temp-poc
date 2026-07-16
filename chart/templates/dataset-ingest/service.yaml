@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "temp-poc.fullname" . }}-dataset-ingest
+  labels:
+    {{- include "temp-poc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dataset-ingest
+  annotations:
+    {{- toYaml .Values.datasetIngest.service.annotations | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ include "temp-poc.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: dataset-ingest
+  ports:
+    - name: http
+      port: {{ .Values.datasetIngest.service.port }}
+      targetPort: http

@@ -1,0 +1,51 @@
+{{- if .Values.karmada.enabled }}
+apiVersion: policy.karmada.io/v1alpha1
+kind: OverridePolicy
+metadata:
+  name: {{ include "temp-poc.fullname" . }}-dataset-ingest
+  labels:
+    {{- include "temp-poc.labels" . | nindent 4 }}
+spec:
+  resourceSelectors:
+    - apiVersion: v1
+      kind: Service
+      name: {{ include "temp-poc.fullname" . }}-dataset-ingest
+      namespace: {{ .Release.Namespace }}
+  overrideRules:
+    - targetCluster:
+        clusterNames:
+          - {{ .Values.karmada.placements.datasetIngest.cluster }}
+      overriders:
+        plaintext:
+          - path: /spec/type
+            operator: replace
+            value: LoadBalancer
+          - path: /metadata/annotations/lbipam.cilium.io~1ips
+            operator: add
+            value: {{ .Values.karmada.placements.datasetIngest.loadBalancerIP }}
+---
+apiVersion: policy.karmada.io/v1alpha1
+kind: OverridePolicy
+metadata:
+  name: {{ include "temp-poc.fullname" . }}-report-generator
+  labels:
+    {{- include "temp-poc.labels" . | nindent 4 }}
+spec:
+  resourceSelectors:
+    - apiVersion: v1
+      kind: Service
+      name: {{ include "temp-poc.fullname" . }}-report-generator
+      namespace: {{ .Release.Namespace }}
+  overrideRules:
+    - targetCluster:
+        clusterNames:
+          - {{ .Values.karmada.placements.reportGenerator.cluster }}
+      overriders:
+        plaintext:
+          - path: /spec/type
+            operator: replace
+            value: LoadBalancer
+          - path: /metadata/annotations/lbipam.cilium.io~1ips
+            operator: add
+            value: {{ .Values.karmada.placements.reportGenerator.loadBalancerIP }}
+{{- end }}

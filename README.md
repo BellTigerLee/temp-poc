@@ -1,11 +1,47 @@
-# temp-child
+# temp-poc
 
-This local-only repository uses a three-file direct-source layout:
+`temp-poc` is one deployable Helm release for a small end-to-end ScaleX
+multi-cluster service test.
 
-- `README.md` documents the source boundary and publication status.
-- `deploy/dev/configmap.yaml` is the stable source path for development deployment content.
-- `smurfx/request.yaml` is an inert target request. It doesn't register, approve, or deploy anything.
+The data path intentionally crosses the Karmada member boundary:
 
-The files are not currently published, fetchable by federation, registered, validated, approved, deployed, or proof of runtime health.
+```text
+b: dataset-ingest HTTP service
+          |
+          | GET /dataset.csv
+          v
+c: batch-analyzer CronJob
+          |
+          | POST /result
+          v
+b: report-generator HTTP service
+```
 
-A future commit and push must publish the files before federation registration and integration can occur. Those steps are prerequisites for any later consumption or deployment.
+Tower Argo CD reads `chart/` through the
+`scalex-federation` `experiment/release-per-directory` ApplicationSet. The
+single chart renders all workloads plus namespaced Karmada
+`PropagationPolicy` and `OverridePolicy` resources. The two b-side Services
+remain `ClusterIP` in the base manifests and become fixed LoadBalancer
+services only through Karmada overrides.
+
+## Repository layout
+
+```text
+chart/       single Helm chart and Karmada policies
+images/      one immutable image definition per component
+src/         shared typed service implementation
+scripts/     local build and validation entrypoints
+tests/       application and rendered-chart tests
+```
+
+No CI workflow is included. Local validation is:
+
+```bash
+./scripts/test.sh
+```
+
+Build all component images with a source-bound tag:
+
+```bash
+./scripts/build-images.sh <40-character-git-sha>
+```

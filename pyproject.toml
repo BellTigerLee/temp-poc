@@ -1,0 +1,75 @@
+[project]
+name = "temp-poc"
+version = "0.1.0"
+description = "Small HTTP pipeline for a ScaleX multi-cluster Karmada POC"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "anyio>=4.10",
+    "fastapi>=0.116",
+    "httpx2[http2,brotli,zstd]>=0.28",
+    "pydantic>=2.11",
+    "uvicorn>=0.35",
+]
+
+[project.scripts]
+temp-poc-dataset-ingest = "temp_poc.dataset_ingest:main"
+temp-poc-batch-analyzer = "temp_poc.batch_analyzer:main"
+temp-poc-report-generator = "temp_poc.report_generator:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.31",
+    "pytest>=8.4",
+    "pytest-cov>=6.2",
+    "pyyaml>=6.0",
+    "ruff>=0.12",
+]
+
+[tool.basedpyright]
+typeCheckingMode = "all"
+pythonVersion = "3.13"
+pythonPlatform = "All"
+include = ["src", "tests"]
+exclude = ["**/__pycache__", "**/.venv", "**/build", "**/dist"]
+reportUnusedCallResult = "warning"
+reportUnnecessaryTypeIgnoreComment = "error"
+reportUnusedVariable = "error"
+reportMissingParameterType = "error"
+reportPrivateUsage = "error"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["COM812", "ISC001", "D", "CPY001", "TD002", "TD003", "FIX002"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "ARG", "PLR2004", "SLF001", "D"]
+"src/temp_poc/dataset_ingest.py" = ["S104"]
+"src/temp_poc/report_generator.py" = ["S104"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-config", "--strict-markers"]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true

@@ -1,0 +1,27 @@
+{{- if .Values.karmada.enabled }}
+apiVersion: policy.karmada.io/v1alpha1
+kind: PropagationPolicy
+metadata:
+  name: {{ include "temp-poc.fullname" . }}-batch-analyzer
+  labels:
+    {{- include "temp-poc.labels" . | nindent 4 }}
+spec:
+  conflictResolution: Abort
+  preemption: Never
+  priority: 0
+  schedulerName: default-scheduler
+  resourceSelectors:
+    - apiVersion: batch/v1
+      kind: CronJob
+      name: {{ include "temp-poc.fullname" . }}-batch-analyzer
+      namespace: {{ .Release.Namespace }}
+  propagateDeps: true
+  placement:
+    clusterAffinity:
+      clusterNames:
+        - {{ .Values.karmada.placements.batchAnalyzer.cluster }}
+    spreadConstraints:
+      - spreadByField: cluster
+        minGroups: 1
+        maxGroups: 1
+{{- end }}

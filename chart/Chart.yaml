@@ -1,0 +1,6 @@
+apiVersion: v2
+name: temp-poc
+description: Small HTTP pipeline for a ScaleX multi-cluster Karmada POC
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

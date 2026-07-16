@@ -1,6 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: temp-sample
-data:
-  MESSAGE: hello from temp-child
