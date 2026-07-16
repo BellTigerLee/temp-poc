@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "temp-poc.fullname" . }}-batch-analyzer
+  labels:
+    {{- include "temp-poc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: batch-analyzer
+  annotations:
+    scalex.io/source-revision: {{ .Values.images.batchAnalyzer.sourceRevision | quote }}
+spec:
+  schedule: {{ .Values.batchAnalyzer.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: {{ include "temp-poc.name" . }}
+            app.kubernetes.io/instance: {{ .Release.Name }}
+            app.kubernetes.io/component: batch-analyzer
+            scalex.io/release: {{ .Release.Name }}
+        spec:
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            {{- include "temp-poc.podSecurityContext" . | nindent 12 }}
+          containers:
+            - name: batch-analyzer
+              image: {{ include "temp-poc.image" .Values.images.batchAnalyzer | quote }}
+              imagePullPolicy: {{ .Values.images.batchAnalyzer.pullPolicy }}
+              env:
+                - name: DATASET_URL
+                  value: {{ .Values.batchAnalyzer.datasetUrl | quote }}
+                - name: REPORT_URL
+                  value: {{ .Values.batchAnalyzer.reportUrl | quote }}
+              resources:
+                {{- toYaml .Values.batchAnalyzer.resources | nindent 16 }}
+              securityContext:
+                {{- include "temp-poc.containerSecurityContext" . | nindent 16 }}
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}

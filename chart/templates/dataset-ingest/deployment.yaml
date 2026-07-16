@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "temp-poc.fullname" . }}-dataset-ingest
+  labels:
+    {{- include "temp-poc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dataset-ingest
+  annotations:
+    scalex.io/source-revision: {{ .Values.images.datasetIngest.sourceRevision | quote }}
+spec:
+  replicas: {{ .Values.datasetIngest.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "temp-poc.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: dataset-ingest
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "temp-poc.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: dataset-ingest
+        scalex.io/release: {{ .Release.Name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "temp-poc.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: dataset-ingest
+          image: {{ include "temp-poc.image" .Values.images.datasetIngest | quote }}
+          imagePullPolicy: {{ .Values.images.datasetIngest.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            {{- toYaml .Values.datasetIngest.resources | nindent 12 }}
+          securityContext:
+            {{- include "temp-poc.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

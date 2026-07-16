@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["images", "datasetIngest", "batchAnalyzer", "reportGenerator", "karmada"],
+  "properties": {
+    "nameOverride": {"type": "string"},
+    "fullnameOverride": {"type": "string"},
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["datasetIngest", "batchAnalyzer", "reportGenerator"],
+      "properties": {
+        "datasetIngest": {"$ref": "#/$defs/image"},
+        "batchAnalyzer": {"$ref": "#/$defs/image"},
+        "reportGenerator": {"$ref": "#/$defs/image"}
+      }
+    },
+    "datasetIngest": {"$ref": "#/$defs/serviceComponent"},
+    "batchAnalyzer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schedule", "datasetUrl", "reportUrl", "resources"],
+      "properties": {
+        "schedule": {"type": "string", "minLength": 1},
+        "datasetUrl": {"type": "string", "format": "uri", "pattern": "^https?://"},
+        "reportUrl": {"type": "string", "format": "uri", "pattern": "^https?://"},
+        "resources": {"type": "object"}
+      }
+    },
+    "reportGenerator": {"$ref": "#/$defs/serviceComponent"},
+    "karmada": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "placements"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "placements": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["datasetIngest", "batchAnalyzer", "reportGenerator"],
+          "properties": {
+            "datasetIngest": {"$ref": "#/$defs/servicePlacement"},
+            "batchAnalyzer": {"$ref": "#/$defs/placement"},
+            "reportGenerator": {"$ref": "#/$defs/servicePlacement"}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag", "digest", "sourceRevision", "pullPolicy"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string", "minLength": 1},
+        "digest": {"type": "string", "pattern": "^$|^sha256:[0-9a-f]{64}$"},
+        "sourceRevision": {"type": "string", "pattern": "^$|^[0-9a-f]{40}$"},
+        "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "serviceComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["replicas", "service", "resources"],
+      "properties": {
+        "replicas": {"type": "integer", "minimum": 1},
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["port", "annotations"],
+          "properties": {
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "annotations": {"type": "object", "additionalProperties": {"type": "string"}}
+          }
+        },
+        "resources": {"type": "object"}
+      }
+    },
+    "placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cluster"],
+      "properties": {"cluster": {"type": "string", "minLength": 1}}
+    },
+    "servicePlacement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cluster", "loadBalancerIP"],
+      "properties": {
+        "cluster": {"type": "string", "minLength": 1},
+        "loadBalancerIP": {"type": "string", "format": "ipv4"}
+      }
+    }
+  }
+}

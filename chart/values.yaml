@@ -1,0 +1,74 @@
+nameOverride: ""
+fullnameOverride: ""
+
+images:
+  datasetIngest:
+    repository: docker.io/belltigerlee/temp-poc-dataset-ingest
+    tag: candidate
+    digest: ""
+    sourceRevision: ""
+    pullPolicy: IfNotPresent
+  batchAnalyzer:
+    repository: docker.io/belltigerlee/temp-poc-batch-analyzer
+    tag: candidate
+    digest: ""
+    sourceRevision: ""
+    pullPolicy: IfNotPresent
+  reportGenerator:
+    repository: docker.io/belltigerlee/temp-poc-report-generator
+    tag: candidate
+    digest: ""
+    sourceRevision: ""
+    pullPolicy: IfNotPresent
+
+datasetIngest:
+  replicas: 1
+  service:
+    port: 80
+    annotations:
+      scalex.io/exposure: internal
+  resources:
+    requests:
+      cpu: 25m
+      memory: 48Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+batchAnalyzer:
+  schedule: "*/2 * * * *"
+  datasetUrl: http://10.33.142.20/dataset.csv
+  reportUrl: http://10.33.142.21/result
+  resources:
+    requests:
+      cpu: 25m
+      memory: 48Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+reportGenerator:
+  replicas: 1
+  service:
+    port: 80
+    annotations:
+      scalex.io/exposure: internal
+  resources:
+    requests:
+      cpu: 25m
+      memory: 48Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+karmada:
+  enabled: true
+  placements:
+    datasetIngest:
+      cluster: b
+      loadBalancerIP: 10.33.142.20
+    batchAnalyzer:
+      cluster: c
+    reportGenerator:
+      cluster: b
+      loadBalancerIP: 10.33.142.21

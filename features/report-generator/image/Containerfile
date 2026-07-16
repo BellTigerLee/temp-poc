@@ -1,3 +1,0 @@
-FROM registry.example.invalid/base/static@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-COPY payload.txt /payload.txt
-CMD ["cat", "/payload.txt"]
