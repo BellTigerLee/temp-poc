@@ -16,6 +16,16 @@ grep -Fq -- '- chart/values.yaml' "$workflow" ||
   fail "chart values are not excluded from recursive builds"
 grep -Fq 'permissions:' "$workflow" || fail "workflow permissions are not declared"
 grep -Fq 'contents: write' "$workflow" || fail "workflow cannot commit chart values"
+grep -Fq 'IMAGE_REGISTRY: 10.34.25.18/playerone' "$workflow" ||
+  fail "Harbor project is not the image registry"
+grep -Fq -- '- work8' "$workflow" || fail "work8 self-hosted runner label is missing"
+grep -Fq 'name: Authenticate to Harbor' "$workflow" || fail "Harbor login step is missing"
+grep -Fq 'HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}' "$workflow" ||
+  fail "Harbor username secret is not wired"
+grep -Fq 'HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}' "$workflow" ||
+  fail "Harbor password secret is not wired"
+grep -Fq 'docker login 10.34.25.18' "$workflow" ||
+  fail "workflow does not log in to Harbor"
 grep -Fq './scripts/test.sh' "$workflow" || fail "local validation is not executed"
 grep -Fq './scripts/build-images.sh --push "$GITHUB_SHA"' "$workflow" ||
   fail "images are not built and pushed from the exact source SHA"

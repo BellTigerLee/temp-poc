@@ -16,14 +16,20 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE_REGISTRY: docker.io/belltigerlee
+  # IMAGE_REGISTRY: docker.io/belltigerlee
+  IMAGE_REGISTRY: 10.34.25.18/playerone
   YQ_VERSION: v4.45.4
   YQ_SHA256: b96de04645707e14a12f52c37e6266832e03c29e95b9b139cddcae7314466e69
 
 jobs:
   build-and-record:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
+    # runs-on: ubuntu-24.04
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - work8
     timeout-minutes: 45
     steps:
       - name: Check out exact child source
@@ -55,16 +61,29 @@ jobs:
         shell: bash
         run: ./scripts/test.sh
 
-      - name: Authenticate to Docker Hub
+      # - name: Authenticate to Docker Hub
+      #   shell: bash
+      #   env:
+      #     DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      #     DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      #   run: |
+      #     set -euo pipefail
+      #     set +x
+      #     printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io \
+      #       --username "$DOCKERHUB_USERNAME" --password-stdin
+
+      - name: Authenticate to Harbor
         shell: bash
         env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
         run: |
           set -euo pipefail
           set +x
-          printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io \
-            --username "$DOCKERHUB_USERNAME" --password-stdin
+          : "${HARBOR_USERNAME:?HARBOR_USERNAME secret is missing}"
+          : "${HARBOR_PASSWORD:?HARBOR_PASSWORD secret is missing}"
+          printf '%s' "$HARBOR_PASSWORD" | docker login 10.34.25.18 \
+            --username "$HARBOR_USERNAME" --password-stdin
 
       - name: Build and push exact-SHA images
         shell: bash
