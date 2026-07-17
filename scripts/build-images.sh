@@ -1,13 +1,69 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-revision=${1:?40-character source revision is required}
-case "$revision" in
-  (*[!0-9a-f]*|'') echo "source revision must be lowercase hexadecimal" >&2; exit 2 ;;
-esac
-[ "${#revision}" -eq 40 ] || { echo "source revision must contain 40 characters" >&2; exit 2; }
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+registry=${IMAGE_REGISTRY:-docker.io/belltigerlee}
+revision=""
+push=false
 
-for component in dataset-ingest batch-analyzer report-generator; do
-  image="docker.io/belltigerlee/temp-poc-${component}:sha-${revision}"
-  docker build --file "images/${component}/Containerfile" --tag "$image" .
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/build-images.sh [OPTIONS] [REVISION]
+
+Build all temp-poc component images. REVISION defaults to the current Git commit.
+
+Options:
+  --push                 Push each image after it is built
+  --registry REGISTRY    Image registry namespace (default: docker.io/belltigerlee)
+  -h, --help             Show this help
+
+Environment:
+  IMAGE_REGISTRY         Alternative default for --registry
+EOF
+}
+
+while (($#)); do
+  case "$1" in
+    --push)
+      push=true
+      shift
+      ;;
+    --registry)
+      (($# >= 2)) || { echo "--registry requires a value" >&2; exit 2; }
+      registry=$2
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      echo "unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      [[ -z $revision ]] || { echo "only one revision may be specified" >&2; exit 2; }
+      revision=$1
+      shift
+      ;;
+  esac
 done
+
+revision=${revision:-$(git -C "$root" rev-parse HEAD)}
+[[ $revision =~ ^[0-9a-f]{40}$ ]] || {
+  echo "revision must be a 40-character lowercase Git SHA" >&2
+  exit 2
+}
+registry=${registry%/}
+[[ -n $registry ]] || { echo "registry must not be empty" >&2; exit 2; }
+
+export IMAGE_REGISTRY=$registry
+export SOURCE_REVISION=$revision
+
+compose=(docker compose --project-directory "$root" --file "$root/compose.yaml")
+"${compose[@]}" build
+
+if $push; then
+  "${compose[@]}" push
+fi

@@ -27,11 +27,12 @@ services only through Karmada overrides.
 ## Repository layout
 
 ```text
-chart/       single Helm chart and Karmada policies
-images/      one immutable image definition per component
-src/         shared typed service implementation
-scripts/     local build and validation entrypoints
-tests/       application and rendered-chart tests
+chart/        single Helm chart and Karmada policies
+images/       one Dockerfile per component
+src/          shared typed service implementation
+scripts/      local build and validation entrypoints
+tests/        application and rendered-chart tests
+compose.yaml  Docker Compose image build definitions
 ```
 
 No CI workflow is included. Local validation is:
@@ -40,8 +41,25 @@ No CI workflow is included. Local validation is:
 ./scripts/test.sh
 ```
 
-Build all component images with a source-bound tag:
+Build all component images through Docker Compose. The tag defaults to
+`sha-<current-git-commit>`:
 
 ```bash
-./scripts/build-images.sh <40-character-git-sha>
+./scripts/build-images.sh
+```
+
+Build and push them to the default `docker.io/belltigerlee` namespace:
+
+```bash
+docker login docker.io
+./scripts/build-images.sh --push
+```
+
+Use another registry namespace or an explicit source revision when needed:
+
+```bash
+./scripts/build-images.sh \
+  --registry docker.io/example \
+  --push \
+  <40-character-git-sha>
 ```
