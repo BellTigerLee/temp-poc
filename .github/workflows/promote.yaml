@@ -3,7 +3,8 @@ name: Build and Promote temp-poc
 on:
   push:
     branches:
-      - experiment/candidate-feature-packages
+      - main
+      # - experiment/candidate-feature-packages
   workflow_dispatch: {}
 
 permissions:
@@ -20,7 +21,7 @@ env:
 
 jobs:
   promote:
-    if: github.ref == 'refs/heads/experiment/candidate-feature-packages'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
