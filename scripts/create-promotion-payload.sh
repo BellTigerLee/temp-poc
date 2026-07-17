@@ -77,9 +77,11 @@ for mapping in "${components[@]}"; do
   suffix="${mapping#*:}"
   repository="$registry/temp-poc-$suffix"
   tag="sha-$revision"
-  manifest="$($docker_bin buildx imagetools inspect "$repository:$tag" --format '{{json .Manifest}}')"
-  digest="$(jq -er '.digest | select(type == "string")' <<<"$manifest")" || {
-    echo "registry returned no manifest digest: $repository:$tag" >&2
+  repo_digests="$($docker_bin image inspect "$repository:$tag" --format '{{json .RepoDigests}}')"
+  digest="$(jq -er --arg prefix "$repository@" '
+    .[] | select(startswith($prefix)) | sub("^[^@]+@"; "")
+  ' <<<"$repo_digests")" || {
+    echo "pushed image has no matching repository digest: $repository:$tag" >&2
     exit 1
   }
   [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
