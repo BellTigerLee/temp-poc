@@ -14,8 +14,9 @@ grep -Fq 'experiment/candidate-feature-packages' "$workflow" ||
   fail "promotion branch trigger is missing"
 grep -Fq 'permissions:' "$workflow" || fail "workflow permissions are not declared"
 grep -Fq 'contents: read' "$workflow" || fail "source workflow token must be read-only"
-grep -Fq "vars.SCALEX_PROMOTION_ENABLED == 'true'" "$workflow" ||
-  fail "promotion workflow must remain opt-in"
+if grep -Fq "SCALEX_PROMOTION_ENABLED" "$workflow"; then
+  fail "promotion workflow must not depend on an opt-in variable"
+fi
 grep -Fq './scripts/test.sh' "$workflow" || fail "local validation is not executed"
 grep -Fq './scripts/build-images.sh --push "$GITHUB_SHA"' "$workflow" ||
   fail "images are not built and pushed from the exact source SHA"

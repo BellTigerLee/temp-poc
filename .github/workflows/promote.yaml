@@ -20,7 +20,7 @@ env:
 
 jobs:
   promote:
-    if: github.ref == 'refs/heads/experiment/candidate-feature-packages' && vars.SCALEX_PROMOTION_ENABLED == 'true'
+    if: github.ref == 'refs/heads/experiment/candidate-feature-packages'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:

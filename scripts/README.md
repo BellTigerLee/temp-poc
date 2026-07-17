@@ -75,10 +75,9 @@ three images, creates this payload, then uses a short-lived GitHub App token to
 open or update the `promote/temp-poc` bot Pull Request in
 `SJoon99/scalex-federation`. A newer child commit replaces that PR's candidate
 state, so only one open promotion is maintained. The workflow never pushes
-`main` or merges the PR. Configure these GitHub Actions settings first:
+`main` or merges the PR. It runs automatically for pushes to
+`experiment/candidate-feature-packages`. Configure these GitHub Actions settings first:
 
-- variable: `SCALEX_PROMOTION_ENABLED=true` to enable the workflow (it is
-  disabled when the variable is absent or has any other value)
 - variable: `SCALEX_PROMOTION_APP_ID`
 - secrets: `SCALEX_PROMOTION_APP_PRIVATE_KEY`, `DOCKERHUB_USERNAME`,
   `DOCKERHUB_TOKEN`
