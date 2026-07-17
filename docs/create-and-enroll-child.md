@@ -112,8 +112,12 @@ Federation release에 넣지 않는다. 대상 클러스터의 `b-k8s`, `c-k8s` 
 4. Karmada가 placement에 따라 member cluster에 workload를 전파
 
 child CI가 promotion PR을 자동 생성하는 경우에도 Federation `main`에 직접 push하거나
-자동 merge하지 않는다. 현재 `temp-poc` workflow의 GitHub App 연동을 재사용하려면 다음을
-child repository의 Actions 설정에 등록한다.
+자동 merge하지 않는다. 현재 `temp-poc` workflow는 임시 standalone 방식으로 동작하며,
+Federation 저장소 대신 자기 저장소의 `chart/values.yaml`에 image metadata를 커밋한다.
+따라서 Federation promotion용 GitHub App 연동 예제로 그대로 재사용할 수 없다.
+
+향후 cross-repository promotion을 다시 활성화한다면 다음을 child repository의 Actions
+설정에 등록한다.
 
 ```text
 Repository variable:

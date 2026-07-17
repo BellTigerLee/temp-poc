@@ -35,7 +35,7 @@ tests/        application and rendered-chart tests
 compose.yaml  Docker Compose image build definitions
 ```
 
-No CI workflow is included. Local validation is:
+Local validation is:
 
 ```bash
 ./scripts/test.sh
@@ -63,3 +63,9 @@ Use another registry namespace or an explicit source revision when needed:
   --push \
   <40-character-git-sha>
 ```
+
+Pushes to `main` run `.github/workflows/promote.yaml`. The workflow validates
+the source and chart, builds and pushes all three exact-commit images, resolves
+their immutable registry digests, and commits the resulting image metadata to
+`chart/values.yaml` in this repository. A values-only bot commit is excluded
+from the workflow trigger to avoid rebuilding the same source.

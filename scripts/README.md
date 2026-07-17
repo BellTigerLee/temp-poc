@@ -66,24 +66,29 @@ exact-SHA tags after they are pushed:
 ```
 
 The payload contains the child source SHA and all image
-repository/tag/digest/sourceRevision fields expected by `scalex-federation`.
-It does not modify another repository by itself.
+repository/tag/digest/sourceRevision fields. Apply those fields to a chart
+values file with:
 
-On pushes to `experiment/candidate-feature-packages`,
-`.github/workflows/promote.yaml` validates the project, builds and pushes all
-three images, creates this payload, then uses a short-lived GitHub App token to
-open or update the `promote/temp-poc` bot Pull Request in
-`SJoon99/scalex-federation`. A newer child commit replaces that PR's candidate
-state, so only one open promotion is maintained. The workflow never pushes
-`main` or merges the PR. It runs automatically for pushes to
-`experiment/candidate-feature-packages`. Configure these GitHub Actions settings first:
+```bash
+./scripts/apply-image-metadata.sh /tmp/temp-poc-promotion.json
+```
 
-- variable: `SCALEX_PROMOTION_APP_ID`
-- secrets: `SCALEX_PROMOTION_APP_PRIVATE_KEY`, `DOCKERHUB_USERNAME`,
-  `DOCKERHUB_TOKEN`
+The apply command verifies that the payload contains the exact chart image set,
+that every image tag and source revision matches the payload commit, and that
+every digest is immutable. It only changes the image metadata fields in
+`chart/values.yaml`.
 
-The GitHub App must be installed on `SJoon99/scalex-federation` with repository
-Contents and Pull requests write permissions.
+On pushes to `main`, `.github/workflows/promote.yaml` validates the project,
+builds and pushes all three images, creates and applies the payload, then commits
+`chart/values.yaml` back to this repository. A values-only bot commit is ignored
+by the workflow trigger. Configure these GitHub Actions secrets first:
+
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN`
+
+The repository Actions setting must allow workflows read and write access. If
+`main` is protected against direct pushes, allow `github-actions[bot]` to bypass
+that rule or change the final step to open a same-repository Pull Request.
 
 `push-images.sh` is the lower-level compatibility command for pushing images
 that are already built under the default registry. New workflows should use

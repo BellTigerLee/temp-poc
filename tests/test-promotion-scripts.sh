@@ -28,6 +28,34 @@ jq -e --arg revision "$revision" '
   )
 ' "$tmp/promotion.json" >/dev/null
 
+cp "$ROOT/chart/values.yaml" "$tmp/values.yaml"
+schedule_before="$(yq e -r '.batchAnalyzer.schedule' "$tmp/values.yaml")"
+"$ROOT/scripts/apply-image-metadata.sh" "$tmp/promotion.json" "$tmp/values.yaml" >/dev/null
+
+for mapping in \
+  datasetIngest:dataset-ingest \
+  batchAnalyzer:batch-analyzer \
+  reportGenerator:report-generator; do
+  component="${mapping%%:*}"
+  suffix="${mapping#*:}"
+  COMPONENT="$component" yq e -e \
+    '.images[strenv(COMPONENT)].repository == "registry.example.com/team/temp-poc-'"$suffix"'"' \
+    "$tmp/values.yaml" >/dev/null
+  COMPONENT="$component" REVISION="$revision" yq e -e \
+    '.images[strenv(COMPONENT)].tag == "sha-" + strenv(REVISION)' \
+    "$tmp/values.yaml" >/dev/null
+  COMPONENT="$component" REVISION="$revision" yq e -e \
+    '.images[strenv(COMPONENT)].sourceRevision == strenv(REVISION)' \
+    "$tmp/values.yaml" >/dev/null
+  COMPONENT="$component" yq e -e \
+    '.images[strenv(COMPONENT)].digest | test("^sha256:[0-9a-f]{64}$")' \
+    "$tmp/values.yaml" >/dev/null
+done
+[ "$(yq e -r '.batchAnalyzer.schedule' "$tmp/values.yaml")" = "$schedule_before" ] || {
+  echo "non-image chart values changed while applying image metadata" >&2
+  exit 1
+}
+
 if DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
     "$ROOT/scripts/create-promotion-payload.sh" "$tmp/invalid.json" main \
     >"$tmp/invalid.out" 2>"$tmp/invalid.err"; then
@@ -36,4 +64,4 @@ if DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
 fi
 grep -Fq 'revision must be a 40-character lowercase Git SHA' "$tmp/invalid.err"
 
-echo "promotion payload tests passed"
+echo "image metadata script tests passed"
