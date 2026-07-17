@@ -1,0 +1,180 @@
+name: Build and Promote temp-poc
+
+on:
+  push:
+    branches:
+      - experiment/candidate-feature-packages
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: temp-poc-promotion-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_REGISTRY: docker.io/belltigerlee
+  YQ_VERSION: v4.45.4
+  YQ_SHA256: b96de04645707e14a12f52c37e6266832e03c29e95b9b139cddcae7314466e69
+
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/experiment/candidate-feature-packages' && vars.SCALEX_PROMOTION_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact child source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          enable-cache: false
+          version: 0.11.16
+
+      - name: Validate child source and chart
+        shell: bash
+        run: ./scripts/test.sh
+
+      - name: Create short-lived Federation token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        with:
+          app-id: ${{ vars.SCALEX_PROMOTION_APP_ID }}
+          private-key: ${{ secrets.SCALEX_PROMOTION_APP_PRIVATE_KEY }}
+          owner: SJoon99
+          repositories: scalex-federation
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Check out Federation main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: SJoon99/scalex-federation
+          ref: main
+          path: federation
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Install checksum-verified yq
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/scalex-tools"
+          mkdir -p "$tools"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" \
+            --output "$tools/yq"
+          printf '%s  %s\n' "$YQ_SHA256" "$tools/yq" | sha256sum --check --strict
+          chmod 0755 "$tools/yq"
+          printf '%s\n' "$tools" >> "$GITHUB_PATH"
+
+      - name: Check Federation promotion mode
+        id: release-mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode="$(yq e -r '.promotion.mode' federation/releases/temp-poc/release.yaml)"
+          case "$mode" in
+            tracked) printf 'tracked=true\n' >> "$GITHUB_OUTPUT" ;;
+            pinned) printf 'tracked=false\n' >> "$GITHUB_OUTPUT" ;;
+            *) echo "unsupported promotion mode: $mode" >&2; exit 1 ;;
+          esac
+
+      - name: Authenticate to Docker Hub
+        if: steps.release-mode.outputs.tracked == 'true'
+        shell: bash
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          set +x
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io \
+            --username "$DOCKERHUB_USERNAME" --password-stdin
+
+      - name: Build and push exact-SHA images
+        if: steps.release-mode.outputs.tracked == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/build-images.sh --push "$GITHUB_SHA"
+
+      - name: Resolve immutable registry digests
+        if: steps.release-mode.outputs.tracked == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/create-promotion-payload.sh "$RUNNER_TEMP/promotion.json" "$GITHUB_SHA"
+          jq -e '.images | length == 3' "$RUNNER_TEMP/promotion.json" >/dev/null
+
+      - name: Apply atomic Federation promotion
+        if: steps.release-mode.outputs.tracked == 'true'
+        shell: bash
+        working-directory: federation
+        run: |
+          set -euo pipefail
+          branch="promote/temp-poc"
+          git checkout --quiet -B "$branch" origin/main
+          scripts/promote-release.sh temp-poc "$RUNNER_TEMP/promotion.json"
+          git diff --check
+          git diff --exit-code -- releases/temp-poc/release.yaml releases/temp-poc/values.yaml && {
+            echo "Federation main already contains this promotion"
+            exit 0
+          }
+
+      - name: Commit, push, and open promotion PR
+        if: steps.release-mode.outputs.tracked == 'true'
+        shell: bash
+        working-directory: federation
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          branch="promote/temp-poc"
+          if git diff --quiet -- releases/temp-poc/release.yaml releases/temp-poc/values.yaml; then
+            exit 0
+          fi
+
+          bot_user="${APP_SLUG}[bot]"
+          bot_id="$(gh api "/users/$bot_user" --jq .id)"
+          git config user.name "$bot_user"
+          git config user.email "${bot_id}+${bot_user}@users.noreply.github.com"
+          git add releases/temp-poc/release.yaml releases/temp-poc/values.yaml
+          git commit -m "chore(temp-poc): promote $GITHUB_SHA"
+
+          gh auth setup-git
+          remote_sha="$(git ls-remote --heads origin "refs/heads/$branch" | awk '{print $1}')"
+          if [ -n "$remote_sha" ]; then
+            git push --force-with-lease="refs/heads/$branch:$remote_sha" \
+              origin "HEAD:refs/heads/$branch"
+          else
+            git push origin "HEAD:refs/heads/$branch"
+          fi
+
+          body="$RUNNER_TEMP/promotion-pr.md"
+          printf '%s\n' \
+            'Automated strict promotion for `temp-poc`.' \
+            '' \
+            "- source: \`$GITHUB_SHA\`" \
+            '- images: all three component tags and registry digests' \
+            '- merge: requires human review; CI does not auto-merge' >"$body"
+          title="chore(temp-poc): promote ${GITHUB_SHA:0:12}"
+          pr_number="$(gh pr list --repo SJoon99/scalex-federation --head "$branch" \
+            --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$pr_number" ]; then
+            gh pr create --repo SJoon99/scalex-federation \
+              --base main \
+              --head "$branch" \
+              --title "$title" \
+              --body-file "$body"
+          else
+            gh pr edit "$pr_number" --repo SJoon99/scalex-federation \
+              --title "$title" --body-file "$body"
+          fi

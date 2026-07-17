@@ -27,7 +27,7 @@ services only through Karmada overrides.
 ## Repository layout
 
 ```text
-chart/        single Helm chart and Karmada policies
+chart/        single Helm chart and policy/propagation plus policy/overrides templates
 images/       one Dockerfile per component
 src/          shared typed service implementation
 scripts/      local build and validation entrypoints

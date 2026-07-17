@@ -58,9 +58,33 @@ IMAGE_REGISTRY=registry.example.com/team ./scripts/build-images.sh --push
 The Git SHA identifies the committed source. Commit source changes before a
 release build so the image contents and tag refer to the same revision.
 
-Building or pushing images does not update Helm or federation release values.
-After a push, update the corresponding `tag`, `digest`, and `sourceRevision` in
-`scalex-federation/releases/temp-poc/values.yaml` before promoting the release.
+`create-promotion-payload.sh` reads the immutable manifest digest for all three
+exact-SHA tags after they are pushed:
+
+```bash
+./scripts/create-promotion-payload.sh /tmp/temp-poc-promotion.json "$(git rev-parse HEAD)"
+```
+
+The payload contains the child source SHA and all image
+repository/tag/digest/sourceRevision fields expected by `scalex-federation`.
+It does not modify another repository by itself.
+
+On pushes to `experiment/candidate-feature-packages`,
+`.github/workflows/promote.yaml` validates the project, builds and pushes all
+three images, creates this payload, then uses a short-lived GitHub App token to
+open or update the `promote/temp-poc` bot Pull Request in
+`SJoon99/scalex-federation`. A newer child commit replaces that PR's candidate
+state, so only one open promotion is maintained. The workflow never pushes
+`main` or merges the PR. Configure these GitHub Actions settings first:
+
+- variable: `SCALEX_PROMOTION_ENABLED=true` to enable the workflow (it is
+  disabled when the variable is absent or has any other value)
+- variable: `SCALEX_PROMOTION_APP_ID`
+- secrets: `SCALEX_PROMOTION_APP_PRIVATE_KEY`, `DOCKERHUB_USERNAME`,
+  `DOCKERHUB_TOKEN`
+
+The GitHub App must be installed on `SJoon99/scalex-federation` with repository
+Contents and Pull requests write permissions.
 
 `push-images.sh` is the lower-level compatibility command for pushing images
 that are already built under the default registry. New workflows should use
