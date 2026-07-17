@@ -1,26 +1,24 @@
 nameOverride: ""
 fullnameOverride: ""
-
 images:
   datasetIngest:
-    repository: docker.io/belltigerlee/temp-poc-dataset-ingest
-    tag: sha-c1c7bee9ddf38af06e11803690f5bdf52c10bfe6
-    digest: sha256:7f983e357e9c33526b677b6a7e6ada05f7ff5ea6a423778b2c996515fbcff4fb
-    sourceRevision: c1c7bee9ddf38af06e11803690f5bdf52c10bfe6
+    repository: 10.34.25.18/playerone/temp-poc-dataset-ingest
+    tag: sha-77a324f98372aeafaec47b0f9d26e2f2fb0d17b6
+    digest: sha256:f229785a05b1dc50011bf2bd46f8f85c98cf01e34bab8c0f69e947118faa48da
+    sourceRevision: 77a324f98372aeafaec47b0f9d26e2f2fb0d17b6
     pullPolicy: IfNotPresent
   batchAnalyzer:
-    repository: docker.io/belltigerlee/temp-poc-batch-analyzer
-    tag: sha-c1c7bee9ddf38af06e11803690f5bdf52c10bfe6
-    digest: sha256:3d38182379cbc19aa1f3a79873fcc675989d2e29caad7916a6766fdf118eed4a
-    sourceRevision: c1c7bee9ddf38af06e11803690f5bdf52c10bfe6
+    repository: 10.34.25.18/playerone/temp-poc-batch-analyzer
+    tag: sha-77a324f98372aeafaec47b0f9d26e2f2fb0d17b6
+    digest: sha256:8dd6ca85760ff2204ced5def5882e1f26cc16b39c29e18aa98252ca267a57a29
+    sourceRevision: 77a324f98372aeafaec47b0f9d26e2f2fb0d17b6
     pullPolicy: IfNotPresent
   reportGenerator:
-    repository: docker.io/belltigerlee/temp-poc-report-generator
-    tag: sha-c1c7bee9ddf38af06e11803690f5bdf52c10bfe6
-    digest: sha256:08d370ef40e6c0ab9dc8b2aeaafbca9e71515776dad12cf1f04a31aaec07dd83
-    sourceRevision: c1c7bee9ddf38af06e11803690f5bdf52c10bfe6
+    repository: 10.34.25.18/playerone/temp-poc-report-generator
+    tag: sha-77a324f98372aeafaec47b0f9d26e2f2fb0d17b6
+    digest: sha256:92037875d0348823bb2a607a90996c812611c9b7b44b9d1d412035ca2c98ccfc
+    sourceRevision: 77a324f98372aeafaec47b0f9d26e2f2fb0d17b6
     pullPolicy: IfNotPresent
-
 datasetIngest:
   replicas: 1
   service:
@@ -34,7 +32,6 @@ datasetIngest:
     limits:
       cpu: 250m
       memory: 128Mi
-
 batchAnalyzer:
   schedule: "*/2 * * * *"
   datasetUrl: http://10.33.142.20/dataset.csv
@@ -46,7 +43,6 @@ batchAnalyzer:
     limits:
       cpu: 250m
       memory: 128Mi
-
 reportGenerator:
   replicas: 1
   service:
@@ -60,7 +56,6 @@ reportGenerator:
     limits:
       cpu: 250m
       memory: 128Mi
-
 karmada:
   enabled: true
   placements:
