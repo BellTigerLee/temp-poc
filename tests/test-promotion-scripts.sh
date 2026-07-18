@@ -8,11 +8,20 @@ revision=1111111111111111111111111111111111111111
 
 FAKE_DOCKER_LOG="$tmp/docker.log" DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
   IMAGE_REGISTRY=registry.example.com/team \
-  "$ROOT/scripts/build-images.sh" --push --latest "$revision"
+  "$ROOT/scripts/build-images.sh" --push "$revision"
 [ "$(grep -c '^build ' "$tmp/docker.log")" -eq 3 ]
-[ "$(grep -c '^push ' "$tmp/docker.log")" -eq 6 ]
-[ "$(grep -c '^tag ' "$tmp/docker.log")" -eq 3 ]
-grep -Fq 'temp-poc-dataset-ingest:latest' "$tmp/docker.log"
+[ "$(grep -c '^push ' "$tmp/docker.log")" -eq 3 ]
+! grep -q '^tag ' "$tmp/docker.log"
+! grep -Fq ':latest' "$tmp/docker.log"
+
+FAKE_DOCKER_LOG="$tmp/release-docker.log" DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
+  IMAGE_REGISTRY=registry.example.com/team \
+  "$ROOT/scripts/build-images.sh" --push --release-tag 0.1.0 --latest "$revision"
+[ "$(grep -c '^build ' "$tmp/release-docker.log")" -eq 3 ]
+[ "$(grep -c '^push ' "$tmp/release-docker.log")" -eq 9 ]
+[ "$(grep -c '^tag ' "$tmp/release-docker.log")" -eq 6 ]
+grep -Fq 'temp-poc-dataset-ingest:0.1.0' "$tmp/release-docker.log"
+grep -Fq 'temp-poc-dataset-ingest:latest' "$tmp/release-docker.log"
 
 DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
   IMAGE_REGISTRY=registry.example.com/team \
@@ -78,10 +87,35 @@ jq -e '(.images | keys | sort) == ["alpha", "newWorker"]' "$tmp/dynamic.json" >/
 
 FAKE_DOCKER_LOG="$tmp/dynamic-docker.log" IMAGES_DIR="$tmp/images" \
   DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" IMAGE_REGISTRY=registry.example.com/team \
-  "$ROOT/scripts/build-images.sh" --push --latest "$revision"
+  "$ROOT/scripts/build-images.sh" --push --release-tag 1.2.3 --latest "$revision"
 [ "$(grep -c '^build ' "$tmp/dynamic-docker.log")" -eq 2 ]
+grep -Fq 'temp-poc-alpha:1.2.3' "$tmp/dynamic-docker.log"
 grep -Fq 'temp-poc-alpha:latest' "$tmp/dynamic-docker.log"
 grep -Fq 'temp-poc-new-worker:latest' "$tmp/dynamic-docker.log"
+
+if DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
+    "$ROOT/scripts/build-images.sh" --push --release-tag 1.2 "$revision" \
+    >"$tmp/bad-version.out" 2>"$tmp/bad-version.err"; then
+  echo "invalid release version unexpectedly passed" >&2
+  exit 1
+fi
+grep -Fq 'release tag must use X.Y.Z semantic version format' "$tmp/bad-version.err"
+
+if DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
+    "$ROOT/scripts/build-images.sh" --push --release-tag 01.2.3 "$revision" \
+    >"$tmp/leading-zero.out" 2>"$tmp/leading-zero.err"; then
+  echo "release version with a leading zero unexpectedly passed" >&2
+  exit 1
+fi
+grep -Fq 'release tag must use X.Y.Z semantic version format' "$tmp/leading-zero.err"
+
+if DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
+    "$ROOT/scripts/build-images.sh" --push --latest "$revision" \
+    >"$tmp/latest-without-release.out" 2>"$tmp/latest-without-release.err"; then
+  echo "latest without a release version unexpectedly passed" >&2
+  exit 1
+fi
+grep -Fq -- '--latest requires --push and --release-tag' "$tmp/latest-without-release.err"
 
 mkdir -p "$tmp/empty-images"
 if IMAGES_DIR="$tmp/empty-images" DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \

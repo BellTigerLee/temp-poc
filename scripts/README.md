@@ -25,7 +25,7 @@ Build and push to the local Harbor namespace:
 
 ```bash
 docker login 10.34.25.18
-./scripts/build-images.sh --registry 10.34.25.18/playerone --push --latest
+./scripts/build-images.sh --registry 10.34.25.18/playerone --push
 ```
 
 Use another registry namespace:
@@ -59,10 +59,16 @@ IMAGE_REGISTRY=registry.example.com/team ./scripts/build-images.sh --push
 The Git SHA identifies the committed source. Commit source changes before a
 release build so the image contents and tag refer to the same revision.
 
-`--latest` requires `--push` and moves each repository's `latest` tag to the
-same image as the exact SHA tag. The workflow uses it so chart defaults with
-`tag: latest` resolve to the newest successful main-branch build. Use
-`pullPolicy: Always` with `latest`; `IfNotPresent` is intended for immutable
+Create a semantic-version release and move `latest` to it with:
+
+```bash
+./scripts/build-images.sh --registry 10.34.25.18/playerone \
+  --push --release-tag 0.1.0 --latest "$(git rev-parse HEAD)"
+```
+
+`--release-tag` accepts only `X.Y.Z`. `--latest` requires both a release tag and
+`--push`; a normal SHA build can no longer move `latest`. Use `pullPolicy:
+Always` with `latest`; `IfNotPresent` is intended for immutable SHA or release
 tags.
 
 `create-promotion-payload.sh` reads the immutable manifest digest for every
@@ -90,10 +96,11 @@ in the promotion payload. Extra build-only images are allowed. CI never commits
 `chart/values.yaml`.
 
 On pushes to `main`, `.github/workflows/promote.yaml` validates the project,
-discovers, builds, and pushes all component images, then verifies their registry
-digests. ORAS promotion artifact publication is currently commented out while
-CI is limited to Docker image automation. Configure these GitHub Actions
-secrets for the existing Harbor project/repository only:
+discovers all components, and publishes only their exact SHA tags. A stable Git
+tag such as `v0.1.0` additionally publishes image tag `0.1.0`; the highest
+stable SemVer release also moves `latest`. ORAS promotion artifact publication
+is currently commented out while CI is limited to Docker image automation.
+Configure these GitHub Actions secrets for the existing Harbor project only:
 
 - `HARBOR_USERNAME`
 - `HARBOR_PASSWORD`

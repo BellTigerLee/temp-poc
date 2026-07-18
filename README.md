@@ -60,15 +60,23 @@ Use another registry namespace or an explicit source revision when needed:
 ```bash
 ./scripts/build-images.sh \
   --registry 10.34.25.18/playerone \
-  --push --latest \
+  --push --release-tag 0.1.0 --latest \
   <40-character-git-sha>
 ```
 
-`--latest` also moves each component repository's mutable `latest` tag to the
-built SHA and therefore requires `--push`. The main-branch workflow uses this
-mode for the current HTTP-only local Harbor. The Docker daemon must list
+`--release-tag` requires an `X.Y.Z` semantic version. `--latest` moves each
+component repository's mutable `latest` tag to that release and therefore
+requires both `--push` and `--release-tag`. The Docker daemon must list
 `10.34.25.18` as an insecure registry. ORAS promotion publication is currently
 commented out because this workflow only builds and pushes component images.
+
+The workflow uses Git tags as release events:
+
+- A `main` push publishes only the immutable `sha-<commit>` tag.
+- A `v0.1.0` Git tag publishes `sha-<commit>`, `0.1.0`, and `latest`.
+- A later `v0.1.1` tag publishes `0.1.1` and moves `latest` to the same digest.
+- Publishing an older version after a newer version does not move `latest`
+  backwards; only the highest stable SemVer tag may update it.
 
 The chart's `images` values are user-owned deployment defaults and contain only
 `repository`, `tag`, and `pullPolicy`. A `latest` tag requires `Always`; an
@@ -93,11 +101,10 @@ the two Services to `LoadBalancer` only on their target cluster and assign the
 configured Cilium LB IPs.
 
 `chart/values.yaml` stays valid as user-owned standalone chart defaults, but it
-is not the immutable release state. Pushes to `main` run
+is not the immutable release state. Pushes to `main` and stable `vX.Y.Z` tags run
 `.github/workflows/promote.yaml`, which validates the source and chart,
-discovers every Dockerfile, and builds and pushes exact-SHA plus `latest`
-images. It also verifies the pushed registry digests locally. ORAS publication
-of the generated promotion payload is preserved as commented workflow code for
-later release-tracking work; it does not execute now. CI does not commit chart
-values, and `scripts/apply-image-metadata.sh` remains a manual,
-non-authoritative helper.
+discovers every Dockerfile, and pushes the appropriate SHA and release tags. It
+also verifies the pushed registry digests locally. ORAS publication of the
+generated promotion payload is preserved as commented workflow code for later
+release-tracking work; it does not execute now. CI does not commit chart values,
+and `scripts/apply-image-metadata.sh` remains a manual, non-authoritative helper.

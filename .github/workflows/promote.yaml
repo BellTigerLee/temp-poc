@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*.*.*"
     paths-ignore:
       - chart/values.yaml
   workflow_dispatch: {}
@@ -12,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: temp-poc-image-publish-main
+  group: temp-poc-image-publish
   cancel-in-progress: false
 
 env:
@@ -24,7 +26,7 @@ env:
 jobs:
   build-and-push-images:
     name: Build and push images
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     # runs-on: ubuntu-24.04
     runs-on:
       - self-hosted
@@ -110,11 +112,31 @@ jobs:
           printf '%s' "$HARBOR_PASSWORD" | docker login 10.34.25.18 \
             --username "$HARBOR_USERNAME" --password-stdin
 
-      - name: Build and push exact-SHA images
+      - name: Build and push images
         shell: bash
         run: |
           set -euo pipefail
-          ./scripts/build-images.sh --push --latest "$GITHUB_SHA"
+          release_args=()
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            semver_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+            [[ "$GITHUB_REF_NAME" =~ $semver_pattern ]] || {
+              echo "release tag must use vX.Y.Z semantic version format" >&2
+              exit 2
+            }
+            release_args=(--release-tag "${GITHUB_REF_NAME#v}")
+
+            latest_release=""
+            while IFS= read -r candidate; do
+              if [[ "$candidate" =~ $semver_pattern ]]; then
+                latest_release="$candidate"
+                break
+              fi
+            done < <(git tag --list 'v*' --sort=-v:refname)
+            if [[ "$GITHUB_REF_NAME" == "$latest_release" ]]; then
+              release_args+=(--latest)
+            fi
+          fi
+          ./scripts/build-images.sh --push "${release_args[@]}" "$GITHUB_SHA"
 
       - name: Resolve immutable registry digests
         shell: bash

@@ -39,16 +39,20 @@ validate_workflow() {
   assert_contains "$file" 'build-and-push-images:' \
     "image build-and-push job is missing"
   assert_contains "$file" '- main' "main branch trigger is missing"
+  assert_contains "$file" '- "v*.*.*"' "semantic-version tag trigger is missing"
   assert_contains "$file" 'workflow_dispatch: {}' "manual workflow trigger is missing"
   assert_contains "$file" 'paths-ignore:' "paths-ignore is missing"
   assert_contains "$file" '- chart/values.yaml' \
     "chart values are not excluded from recursive builds"
   assert_contains "$file" 'contents: read' "workflow contents permission is not read-only"
   assert_excludes "$file" 'contents:[[:space:]]*write' "workflow retains write permission"
-  assert_contains "$file" 'group: temp-poc-image-publish-main' \
+  assert_contains "$file" 'group: temp-poc-image-publish' \
     "image publishers are not globally serialized"
   assert_contains "$file" 'cancel-in-progress: false' \
-    "promotion publication can be interrupted by a newer run"
+    "image publication can be interrupted by a newer run"
+  assert_contains "$file" \
+    "if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')" \
+    "release tag jobs are filtered out"
 
   assert_contains "$file" \
     'uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683' \
@@ -81,8 +85,15 @@ validate_workflow() {
     "Harbor password secret is not wired"
   assert_contains "$file" 'docker login 10.34.25.18' "workflow does not log in to Harbor"
   assert_contains "$file" '--password-stdin' "registry passwords are not passed on stdin"
-  assert_contains "$file" './scripts/build-images.sh --push --latest "$GITHUB_SHA"' \
+  assert_contains "$file" \
+    './scripts/build-images.sh --push "${release_args[@]}" "$GITHUB_SHA"' \
     "images are not built and pushed from the exact source SHA"
+  assert_contains "$file" 'release_args=(--release-tag "${GITHUB_REF_NAME#v}")' \
+    "semantic version is not passed to the image builder"
+  assert_contains "$file" 'release_args+=(--latest)' \
+    "the highest semantic version does not move latest"
+  assert_contains "$file" "git tag --list 'v*' --sort=-v:refname" \
+    "latest release selection is not version-aware"
   assert_contains "$file" './scripts/discover-images.sh' \
     "workflow does not validate the discovered image count"
   assert_contains "$file" \
@@ -151,7 +162,7 @@ expect_rejected "$tmp/write-permission.yaml" "write-permission fixture was accep
 sed '/if: always()/d' "$workflow" >"$tmp/missing-cleanup.yaml"
 expect_rejected "$tmp/missing-cleanup.yaml" "missing-cleanup fixture was accepted"
 
-sed 's/group: temp-poc-image-publish-main/group: temp-poc-image-${{ github.ref }}/' \
+sed 's/group: temp-poc-image-publish/group: temp-poc-image-${{ github.ref }}/' \
   "$workflow" >"$tmp/wrong-concurrency.yaml"
 expect_rejected "$tmp/wrong-concurrency.yaml" "wrong-concurrency fixture was accepted"
 

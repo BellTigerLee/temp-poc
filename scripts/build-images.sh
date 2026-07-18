@@ -7,6 +7,7 @@ docker_bin=${DOCKER_BIN:-docker}
 revision=""
 push=false
 latest=false
+release_tag=""
 
 usage() {
   cat <<'EOF'
@@ -16,7 +17,8 @@ Build all temp-poc component images. REVISION defaults to the current Git commit
 
 Options:
   --push                 Push each image after it is built
-  --latest               Also tag and push each image as latest (requires --push)
+  --release-tag VERSION  Also tag and push each image with VERSION (X.Y.Z)
+  --latest               Move latest to VERSION (requires --release-tag and --push)
   --registry REGISTRY    Image registry namespace (default: docker.io/belltigerlee)
   -h, --help             Show this help
 
@@ -35,6 +37,11 @@ while (($#)); do
     --latest)
       latest=true
       shift
+      ;;
+    --release-tag)
+      (($# >= 2)) || { echo "--release-tag requires a value" >&2; exit 2; }
+      release_tag=$2
+      shift 2
       ;;
     --registry)
       (($# >= 2)) || { echo "--registry requires a value" >&2; exit 2; }
@@ -65,10 +72,19 @@ revision=${revision:-$(git -C "$root" rev-parse HEAD)}
 }
 registry=${registry%/}
 [[ -n $registry ]] || { echo "registry must not be empty" >&2; exit 2; }
-$latest && ! $push && {
-  echo "--latest requires --push" >&2
+semver_pattern='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+[[ -z $release_tag || $release_tag =~ $semver_pattern ]] || {
+  echo "release tag must use X.Y.Z semantic version format" >&2
   exit 2
 }
+[[ -z $release_tag ]] || $push || {
+  echo "--release-tag requires --push" >&2
+  exit 2
+}
+if $latest && { ! $push || [[ -z $release_tag ]]; }; then
+  echo "--latest requires --push and --release-tag" >&2
+  exit 2
+fi
 command -v "$docker_bin" >/dev/null 2>&1 || {
   echo "Docker-compatible command not found: $docker_bin" >&2
   exit 1
@@ -86,6 +102,16 @@ if $push; then
     repository="$registry/temp-poc-$component"
     sha_ref="$repository:sha-$revision"
     "$docker_bin" push "$sha_ref"
+  done <<<"$inventory"
+fi
+
+if [[ -n $release_tag ]]; then
+  while IFS=$'\t' read -r _ component _; do
+    repository="$registry/temp-poc-$component"
+    sha_ref="$repository:sha-$revision"
+    release_ref="$repository:$release_tag"
+    "$docker_bin" tag "$sha_ref" "$release_ref"
+    "$docker_bin" push "$release_ref"
   done <<<"$inventory"
 fi
 
