@@ -90,22 +90,18 @@ in the promotion payload. Extra build-only images are allowed. CI never commits
 `chart/values.yaml`.
 
 On pushes to `main`, `.github/workflows/promote.yaml` validates the project,
-discovers, builds, and pushes all component images, creates the payload, publishes the
-immutable promotion artifact to `10.34.25.18/playerone/temp-poc-promotions`, and
-advances `latest-verified` only when the candidate source SHA still equals the
-current remote `origin/main`. Stale completed runs keep their immutable artifact
-but do not move the channel. The immutable run tag
-`sha-<source-sha>-run-<run-id>-attempt-<attempt>` is intended for indefinite
-initial retention, and `latest-verified` is discovery only. Configure these
-GitHub Actions secrets for the existing Harbor project/repository only:
+discovers, builds, and pushes all component images, then verifies their registry
+digests. ORAS promotion artifact publication is currently commented out while
+CI is limited to Docker image automation. Configure these GitHub Actions
+secrets for the existing Harbor project/repository only:
 
 - `HARBOR_USERNAME`
 - `HARBOR_PASSWORD`
 
 The workflow uses GitHub `contents: read`, no Git write permission, and no chart
-commit-back path. The current Harbor is HTTP-only: the Docker host must trust it
-as an insecure registry, and `HARBOR_PLAIN_HTTP=true` makes every ORAS remote
-operation use plain HTTP. Remove that setting after Harbor TLS is enabled.
+commit-back path. The current Harbor is HTTP-only, so the Docker host must trust
+it as an insecure registry. The preserved ORAS block can be revisited after
+promotion publication is needed and Harbor transport is finalized.
 
 `push-images.sh` is the lower-level compatibility command for pushing images
 that are already built under the default registry. New workflows should use

@@ -67,8 +67,8 @@ Use another registry namespace or an explicit source revision when needed:
 `--latest` also moves each component repository's mutable `latest` tag to the
 built SHA and therefore requires `--push`. The main-branch workflow uses this
 mode for the current HTTP-only local Harbor. The Docker daemon must list
-`10.34.25.18` as an insecure registry, while ORAS receives `--plain-http`
-through `HARBOR_PLAIN_HTTP=true`.
+`10.34.25.18` as an insecure registry. ORAS promotion publication is currently
+commented out because this workflow only builds and pushes component images.
 
 The chart's `images` values are user-owned deployment defaults and contain only
 `repository`, `tag`, and `pullPolicy`. A `latest` tag requires `Always`; an
@@ -95,16 +95,9 @@ configured Cilium LB IPs.
 `chart/values.yaml` stays valid as user-owned standalone chart defaults, but it
 is not the immutable release state. Pushes to `main` run
 `.github/workflows/promote.yaml`, which validates the source and chart,
-discovers every Dockerfile, builds and pushes exact-SHA plus `latest` images,
-and publishes one
-immutable OCI promotion artifact to `10.34.25.18/playerone/temp-poc-promotions`.
-The payload stores the source SHA in `source.revision` and the image deployment
-digests in `images`. The OCI transport digest identifies the OCI manifest and
-is emitted and verified separately, not stored inside `ReleasePromotion`. The
-immutable run tag `sha-<source-sha>-run-<run-id>-attempt-<attempt>` is intended
-for indefinite initial retention, while `latest-verified` is discovery only.
-Child CI is the sole writer of that channel, and it moves it only when the
-candidate source SHA still matches the current remote `origin/main`. Stale
-completed runs keep their immutable artifact but do not move the channel. CI no
-longer commits chart values, and `scripts/apply-image-metadata.sh` remains a
-manual, non-authoritative helper.
+discovers every Dockerfile, and builds and pushes exact-SHA plus `latest`
+images. It also verifies the pushed registry digests locally. ORAS publication
+of the generated promotion payload is preserved as commented workflow code for
+later release-tracking work; it does not execute now. CI does not commit chart
+values, and `scripts/apply-image-metadata.sh` remains a manual,
+non-authoritative helper.

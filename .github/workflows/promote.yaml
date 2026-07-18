@@ -1,4 +1,4 @@
-name: Publish verified promotion artifact
+name: Build and push images
 
 on:
   push:
@@ -12,20 +12,18 @@ permissions:
   contents: read
 
 concurrency:
-  group: temp-poc-promotion-latest-verified
+  group: temp-poc-image-publish-main
   cancel-in-progress: false
 
 env:
   # IMAGE_REGISTRY: docker.io/belltigerlee
   IMAGE_REGISTRY: 10.34.25.18/playerone
-  PROMOTION_REPOSITORY: 10.34.25.18/playerone/temp-poc-promotions
-  HARBOR_PLAIN_HTTP: "true"
   YQ_VERSION: v4.45.4
   YQ_SHA256: b96de04645707e14a12f52c37e6266832e03c29e95b9b139cddcae7314466e69
 
 jobs:
-  publish-verified-promotion:
-    name: Publish verified promotion
+  build-and-push-images:
+    name: Build and push images
     if: github.ref == 'refs/heads/main'
     # runs-on: ubuntu-24.04
     runs-on:
@@ -64,16 +62,17 @@ jobs:
         shell: bash
         run: ./scripts/test.sh
 
-      - name: Install pinned ORAS
-        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d
-        with:
-          version: 1.3.3
+      # ORAS promotion publication is intentionally disabled for now.
+      # - name: Install pinned ORAS
+      #   uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d
+      #   with:
+      #     version: 1.3.3
 
-      - name: Assert ORAS version
-        shell: bash
-        run: |
-          set -euo pipefail
-          oras version | grep -Eq '(^|[^0-9])1\.3\.3([^0-9]|$)'
+      # - name: Assert ORAS version
+      #   shell: bash
+      #   run: |
+      #     set -euo pipefail
+      #     oras version | grep -Eq '(^|[^0-9])1\.3\.3([^0-9]|$)'
 
       - name: Prepare isolated registry authentication
         shell: bash
@@ -82,11 +81,10 @@ jobs:
           set +x
           auth_root="$RUNNER_TEMP/temp-poc-auth"
           rm -rf "$auth_root"
-          install -d -m 0700 "$auth_root" "$auth_root/docker" "$auth_root/oras"
+          install -d -m 0700 "$auth_root" "$auth_root/docker"
           printf '{}\n' > "$auth_root/docker/config.json"
           chmod 0600 "$auth_root/docker/config.json"
           printf 'DOCKER_CONFIG=%s\n' "$auth_root/docker" >> "$GITHUB_ENV"
-          printf 'TMPDIR=%s\n' "$auth_root/oras" >> "$GITHUB_ENV"
 
       # - name: Authenticate to Docker Hub
       #   shell: bash
@@ -127,16 +125,16 @@ jobs:
           jq -e --argjson count "$discovered_count" '.images | length == $count' \
             "$RUNNER_TEMP/promotion.json" >/dev/null
 
-      - name: Publish verified promotion
-        shell: bash
-        env:
-          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
-          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-        run: |
-          set -euo pipefail
-          set +x
-          trap 'rm -rf "$RUNNER_TEMP/temp-poc-auth/oras"' EXIT INT TERM
-          ./scripts/publish-promotion-artifact.sh "$RUNNER_TEMP/promotion.json" "$GITHUB_SHA"
+      # - name: Publish verified promotion
+      #   shell: bash
+      #   env:
+      #     HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+      #     HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+      #   run: |
+      #     set -euo pipefail
+      #     set +x
+      #     trap 'rm -rf "$RUNNER_TEMP/temp-poc-auth/oras"' EXIT INT TERM
+      #     ./scripts/publish-promotion-artifact.sh "$RUNNER_TEMP/promotion.json" "$GITHUB_SHA"
 
       - name: Clean registry authentication
         if: always()

@@ -23,14 +23,21 @@ assert_excludes() {
   fi
 }
 
+assert_no_active_line() {
+  local file="$1" pattern="$2" message="$3"
+  if grep -Eq "^[[:space:]]*${pattern}" "$file"; then
+    fail "$message"
+  fi
+}
+
 validate_workflow() {
   local file="$1"
 
   [ -f "$file" ] || fail "promotion workflow is missing"
-  assert_contains "$file" 'name: Publish verified promotion artifact' \
-    "workflow does not use publication semantics"
-  assert_contains "$file" 'publish-verified-promotion:' \
-    "publication job is missing"
+  assert_contains "$file" 'name: Build and push images' \
+    "workflow does not use image publication semantics"
+  assert_contains "$file" 'build-and-push-images:' \
+    "image build-and-push job is missing"
   assert_contains "$file" '- main' "main branch trigger is missing"
   assert_contains "$file" 'workflow_dispatch: {}' "manual workflow trigger is missing"
   assert_contains "$file" 'paths-ignore:' "paths-ignore is missing"
@@ -38,8 +45,8 @@ validate_workflow() {
     "chart values are not excluded from recursive builds"
   assert_contains "$file" 'contents: read' "workflow contents permission is not read-only"
   assert_excludes "$file" 'contents:[[:space:]]*write' "workflow retains write permission"
-  assert_contains "$file" 'group: temp-poc-promotion-latest-verified' \
-    "promotion publishers are not globally serialized"
+  assert_contains "$file" 'group: temp-poc-image-publish-main' \
+    "image publishers are not globally serialized"
   assert_contains "$file" 'cancel-in-progress: false' \
     "promotion publication can be interrupted by a newer run"
 
@@ -56,20 +63,15 @@ validate_workflow() {
   assert_contains "$file" 'YQ_VERSION: v4.45.4' "yq version pin changed"
   assert_contains "$file" 'YQ_SHA256: b96de04645707e14a12f52c37e6266832e03c29e95b9b139cddcae7314466e69' \
     "yq checksum pin changed"
-  assert_contains "$file" \
-    'uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d' \
-    "ORAS setup action is not commit-pinned"
-  assert_contains "$file" 'version: 1.3.3' "ORAS CLI is not pinned to 1.3.3"
-  assert_contains "$file" "grep -Eq '(^|[^0-9])1\\.3\\.3([^0-9]|$)'" \
-    "ORAS version is not asserted"
+  assert_contains "$file" '# ORAS promotion publication is intentionally disabled for now.' \
+    "temporary ORAS disablement is not documented in the workflow"
+  assert_no_active_line "$file" 'uses:[[:space:]]+oras-project/setup-oras@' \
+    "ORAS setup action is active"
+  assert_no_active_line "$file" 'oras[[:space:]]+version' \
+    "ORAS version assertion is active"
 
   assert_contains "$file" 'IMAGE_REGISTRY: 10.34.25.18/playerone' \
     "Harbor project is not the image registry"
-  assert_contains "$file" \
-    'PROMOTION_REPOSITORY: 10.34.25.18/playerone/temp-poc-promotions' \
-    "promotion repository is incorrect"
-  assert_contains "$file" 'HARBOR_PLAIN_HTTP: "true"' \
-    "HTTP Harbor transport is not explicitly enabled"
   assert_contains "$file" '- work8' "work8 self-hosted runner label is missing"
   assert_contains "$file" './scripts/test.sh' "source and chart validation is not executed"
   assert_contains "$file" 'name: Authenticate to Harbor' "Harbor login step is missing"
@@ -86,9 +88,8 @@ validate_workflow() {
   assert_contains "$file" \
     './scripts/create-promotion-payload.sh "$RUNNER_TEMP/promotion.json" "$GITHUB_SHA"' \
     "registry digests are not captured in a promotion payload"
-  assert_contains "$file" \
-    './scripts/publish-promotion-artifact.sh "$RUNNER_TEMP/promotion.json" "$GITHUB_SHA"' \
-    "verified promotion publisher is not invoked"
+  assert_no_active_line "$file" './scripts/publish-promotion-artifact\.sh' \
+    "verified promotion publisher is active"
 
   assert_contains "$file" 'install -d -m 0700' "temporary auth directories are not mode 0700"
   assert_contains "$file" 'chmod 0600' "temporary registry config is not mode 0600"
@@ -96,8 +97,6 @@ validate_workflow() {
   assert_contains "$file" 'docker logout 10.34.25.18' "Docker logout cleanup is missing"
   assert_contains "$file" 'rm -rf "$RUNNER_TEMP/temp-poc-auth"' \
     "temporary auth cleanup is missing"
-  assert_contains "$file" "trap 'rm -rf \"\$RUNNER_TEMP/temp-poc-auth/oras\"' EXIT INT TERM" \
-    "publication step does not trap cleanup on interruption"
 
   assert_excludes "$file" 'apply-image-metadata\.sh' \
     "workflow still mutates chart image metadata"
@@ -152,11 +151,7 @@ expect_rejected "$tmp/write-permission.yaml" "write-permission fixture was accep
 sed '/if: always()/d' "$workflow" >"$tmp/missing-cleanup.yaml"
 expect_rejected "$tmp/missing-cleanup.yaml" "missing-cleanup fixture was accepted"
 
-sed 's#oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d#oras-project/setup-oras@v1#' \
-  "$workflow" >"$tmp/unpinned-oras.yaml"
-expect_rejected "$tmp/unpinned-oras.yaml" "unpinned-ORAS fixture was accepted"
-
-sed 's/group: temp-poc-promotion-latest-verified/group: temp-poc-promotion-${{ github.ref }}/' \
+sed 's/group: temp-poc-image-publish-main/group: temp-poc-image-${{ github.ref }}/' \
   "$workflow" >"$tmp/wrong-concurrency.yaml"
 expect_rejected "$tmp/wrong-concurrency.yaml" "wrong-concurrency fixture was accepted"
 
