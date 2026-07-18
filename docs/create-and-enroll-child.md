@@ -111,27 +111,25 @@ Federation release에 넣지 않는다. 대상 클러스터의 `b-k8s`, `c-k8s` 
 3. federation PR merge 후 Tower ArgoCD가 Karmada destination에 동기화
 4. Karmada가 placement에 따라 member cluster에 workload를 전파
 
-child CI가 promotion PR을 자동 생성하는 경우에도 Federation `main`에 직접 push하거나
-자동 merge하지 않는다. 현재 `temp-poc` workflow는 임시 standalone 방식으로 동작하며,
-Federation 저장소 대신 자기 저장소의 `chart/values.yaml`에 image metadata를 커밋한다.
-따라서 Federation promotion용 GitHub App 연동 예제로 그대로 재사용할 수 없다.
+child CI는 promotion PR을 자동 생성하거나 Federation `main`에 직접 push하지 않는다.
+`temp-poc`의 simplified promotion flow에서는 child CI가 고정 Harbor repository
+`10.34.25.18/playerone/temp-poc-promotions`에 immutable OCI artifact를 publish하고,
+current remote `origin/main` SHA와 candidate source SHA가 같을 때만
+`latest-verified` discovery channel을 옮긴다. payload는 source SHA를
+`source.revision`에, image deployment digest를 `images`에 둔다. OCI transport
+digest는 OCI manifest를 식별하며, payload의 `ReleasePromotion` 안에는 저장하지
+않고 별도로 emit/verify한다. stale completed run은 immutable artifact를 남기지만
+channel은 옮기지 않는다. Federation은 아직 이 OCI channel을 consume하지 않는다.
 
-향후 cross-repository promotion을 다시 활성화한다면 다음을 child repository의 Actions
-설정에 등록한다.
+`scripts/apply-image-metadata.sh`는 child chart defaults를 로컬에서 다루는 manual,
+non-authoritative helper일 뿐이다. CI가 `chart/values.yaml`을 commit하는 경로는
+더 이상 사용하지 않는다.
 
-```text
-Repository variable:
-  SCALEX_PROMOTION_APP_ID=<numeric GitHub App ID>
-
-Repository secrets:
-  SCALEX_PROMOTION_APP_PRIVATE_KEY=<full PEM, including BEGIN/END lines>
-  DOCKERHUB_USERNAME=<registry account>
-  DOCKERHUB_TOKEN=<registry token>
-```
-
-GitHub App은 `scalex-federation`에 설치되어 있어야 하며 `Contents: read/write`와
-`Pull requests: read/write` 권한이 필요하다. workflow의 push 대상 branch와 job `if` 조건도
-실제 운영 branch(`main` 또는 feature branch)에 맞춰 동일하게 설정한다.
+현재 simplified flow에서는 GitHub App 기반 cross-repository promotion 설정을 사용하지
+않는다. child CI는 `HARBOR_USERNAME`과 `HARBOR_PASSWORD`로 기존 Harbor
+repository에 publish/pull만 수행하고, workflow는 GitHub `contents: read` 및 no Git
+write permission을 유지한다. immutable run tag는 초기에는 무기한 보관을 의도하지만,
+실제 Harbor retention은 TLS와 policy 검증이 끝나기 전까지 아직 확인되지 않았다.
 
 ## 7. 활성화 전 확인 목록
 

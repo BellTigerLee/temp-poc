@@ -15,4 +15,5 @@ scripts/validate-render.sh "$tmp/rendered.yaml"
 tests/test-chart-layout.sh
 tests/test-promotion-scripts.sh
 tests/test-promotion-workflow.sh
+tests/test-publish-promotion-artifact.sh
 git diff --check

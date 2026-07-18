@@ -65,9 +65,12 @@ exact-SHA tags after they are pushed:
 ./scripts/create-promotion-payload.sh /tmp/temp-poc-promotion.json "$(git rev-parse HEAD)"
 ```
 
-The payload contains the child source SHA and all image
-repository/tag/digest/sourceRevision fields. Apply those fields to a chart
-values file with:
+The payload stores the child source SHA in `source.revision` and the image
+deployment digests in `images`. The OCI transport digest identifies the OCI
+manifest and is emitted and verified separately, not recorded inside
+`ReleasePromotion`. `chart/values.yaml` still works as standalone defaults, but
+it is not authoritative release state. Apply those fields to a chart values file
+with:
 
 ```bash
 ./scripts/apply-image-metadata.sh /tmp/temp-poc-promotion.json
@@ -75,20 +78,25 @@ values file with:
 
 The apply command verifies that the payload contains the exact chart image set,
 that every image tag and source revision matches the payload commit, and that
-every digest is immutable. It only changes the image metadata fields in
-`chart/values.yaml`.
+every digest is immutable. It is a manual utility for local chart metadata only.
+CI no longer commits `chart/values.yaml`.
 
 On pushes to `main`, `.github/workflows/promote.yaml` validates the project,
-builds and pushes all three images, creates and applies the payload, then commits
-`chart/values.yaml` back to this repository. A values-only bot commit is ignored
-by the workflow trigger. Configure these GitHub Actions secrets first:
+builds and pushes all three images, creates the payload, publishes the
+immutable promotion artifact to `10.34.25.18/playerone/temp-poc-promotions`, and
+advances `latest-verified` only when the candidate source SHA still equals the
+current remote `origin/main`. Stale completed runs keep their immutable artifact
+but do not move the channel. The immutable run tag
+`sha-<source-sha>-run-<run-id>-attempt-<attempt>` is intended for indefinite
+initial retention, and `latest-verified` is discovery only. Configure these
+GitHub Actions secrets for the existing Harbor project/repository only:
 
-- `DOCKERHUB_USERNAME`
-- `DOCKERHUB_TOKEN`
+- `HARBOR_USERNAME`
+- `HARBOR_PASSWORD`
 
-The repository Actions setting must allow workflows read and write access. If
-`main` is protected against direct pushes, allow `github-actions[bot]` to bypass
-that rule or change the final step to open a same-repository Pull Request.
+The workflow uses GitHub `contents: read`, no Git write permission, and no chart
+commit-back path. Live Harbor retention remains unverified until TLS and policy
+activation are complete.
 
 `push-images.sh` is the lower-level compatibility command for pushing images
 that are already built under the default registry. New workflows should use

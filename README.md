@@ -64,8 +64,17 @@ Use another registry namespace or an explicit source revision when needed:
   <40-character-git-sha>
 ```
 
-Pushes to `main` run `.github/workflows/promote.yaml`. The workflow validates
-the source and chart, builds and pushes all three exact-commit images, resolves
-their immutable registry digests, and commits the resulting image metadata to
-`chart/values.yaml` in this repository. A values-only bot commit is excluded
-from the workflow trigger to avoid rebuilding the same source.
+`chart/values.yaml` stays valid as standalone chart defaults, but it is not the
+release state. Pushes to `main` run `.github/workflows/promote.yaml`, which
+validates the source and chart, builds the exact-SHA images, and publishes one
+immutable OCI promotion artifact to `10.34.25.18/playerone/temp-poc-promotions`.
+The payload stores the source SHA in `source.revision` and the image deployment
+digests in `images`. The OCI transport digest identifies the OCI manifest and
+is emitted and verified separately, not stored inside `ReleasePromotion`. The
+immutable run tag `sha-<source-sha>-run-<run-id>-attempt-<attempt>` is intended
+for indefinite initial retention, while `latest-verified` is discovery only.
+Child CI is the sole writer of that channel, and it moves it only when the
+candidate source SHA still matches the current remote `origin/main`. Stale
+completed runs keep their immutable artifact but do not move the channel. CI no
+longer commits chart values, and `scripts/apply-image-metadata.sh` remains a
+manual, non-authoritative helper.
