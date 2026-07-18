@@ -21,12 +21,7 @@ revision="$(jq -er '.source.revision | select(type == "string")' "$payload")"
 }
 
 current_keys="$(yq e -r '.images | keys | .[]' "$values" | LC_ALL=C sort)"
-payload_keys="$(jq -r '.images | keys[]' "$payload" | LC_ALL=C sort)"
 [ -n "$current_keys" ] || { echo "chart values contain no images" >&2; exit 1; }
-[ "$current_keys" = "$payload_keys" ] || {
-  echo "payload must contain exactly the chart image set" >&2
-  exit 1
-}
 
 tmp="$(mktemp "${values}.tmp.XXXXXX")"
 trap 'rm -f "$tmp"' EXIT
@@ -56,12 +51,9 @@ while IFS= read -r component; do
     exit 1
   }
 
-  COMPONENT="$component" REPOSITORY="$repository" TAG="$tag" \
-    DIGEST="$digest" REVISION="$revision" yq -i '
+  COMPONENT="$component" REPOSITORY="$repository" TAG="$tag" yq -i '
       .images[strenv(COMPONENT)].repository = strenv(REPOSITORY) |
-      .images[strenv(COMPONENT)].tag = strenv(TAG) |
-      .images[strenv(COMPONENT)].digest = strenv(DIGEST) |
-      .images[strenv(COMPONENT)].sourceRevision = strenv(REVISION)
+      .images[strenv(COMPONENT)].tag = strenv(TAG)
     ' "$tmp"
 done <<<"$current_keys"
 

@@ -52,14 +52,16 @@
     "image": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "tag", "digest", "sourceRevision", "pullPolicy"],
+      "required": ["repository", "tag", "pullPolicy"],
       "properties": {
         "repository": {"type": "string", "minLength": 1},
         "tag": {"type": "string", "minLength": 1},
-        "digest": {"type": "string", "pattern": "^$|^sha256:[0-9a-f]{64}$"},
-        "sourceRevision": {"type": "string", "pattern": "^$|^[0-9a-f]{40}$"},
-        "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
-      }
+        "pullPolicy": {"enum": ["Always", "IfNotPresent"]}
+      },
+      "allOf": [{
+        "if": {"properties": {"tag": {"const": "latest"}}, "required": ["tag"]},
+        "then": {"properties": {"pullPolicy": {"const": "Always"}}}
+      }]
     },
     "serviceComponent": {
       "type": "object",

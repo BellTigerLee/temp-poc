@@ -67,15 +67,9 @@ jq -n --arg revision "$revision" '{
   images: {}
 }' >"$tmp"
 
-components=(
-  'datasetIngest:dataset-ingest'
-  'batchAnalyzer:batch-analyzer'
-  'reportGenerator:report-generator'
-)
-for mapping in "${components[@]}"; do
-  key="${mapping%%:*}"
-  suffix="${mapping#*:}"
-  repository="$registry/temp-poc-$suffix"
+inventory="$("$root/scripts/discover-images.sh")"
+while IFS=$'\t' read -r key component _; do
+  repository="$registry/temp-poc-$component"
   tag="sha-$revision"
   repo_digests="$($docker_bin image inspect "$repository:$tag" --format '{{json .RepoDigests}}')"
   digest="$(jq -er --arg prefix "$repository@" '
@@ -102,7 +96,7 @@ for mapping in "${components[@]}"; do
       sourceRevision: $revision
     }' "$tmp" >"$next"
   mv "$next" "$tmp"
-done
+done <<<"$inventory"
 
 mv "$tmp" "$output"
 trap - EXIT

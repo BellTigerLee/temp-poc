@@ -10,6 +10,7 @@ artifact_type='application/vnd.scalex.release-promotion.v1+json'
 layer_type='application/vnd.scalex.release-promotion.payload.v1+json'
 manifest_type='application/vnd.oci.image.manifest.v1+json'
 oras_bin="${ORAS_BIN:-oras}"
+plain_http="${HARBOR_PLAIN_HTTP:-false}"
 
 fail() {
   echo "$*" >&2
@@ -34,9 +35,11 @@ repository="${PROMOTION_REPOSITORY%/}"
 [[ "$repository" == */temp-poc-promotions ]] || fail 'promotion repository must end with /temp-poc-promotions'
 namespace_prefix="${repository%/temp-poc-promotions}"
 [ -n "$namespace_prefix" ] || fail 'promotion repository namespace is invalid'
-dataset_ingest_repository="$namespace_prefix/temp-poc-dataset-ingest"
-batch_analyzer_repository="$namespace_prefix/temp-poc-batch-analyzer"
-report_generator_repository="$namespace_prefix/temp-poc-report-generator"
+case "$plain_http" in
+  true) oras_remote_args=(--plain-http) ;;
+  false) oras_remote_args=() ;;
+  *) fail 'HARBOR_PLAIN_HTTP must be true or false' ;;
+esac
 [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ ]] || fail 'GITHUB_RUN_ID must be a positive integer'
 [[ "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]] || fail 'GITHUB_RUN_ATTEMPT must be a positive integer'
 
@@ -44,7 +47,17 @@ for tool in jq git sha256sum cmp wc grep mktemp "$oras_bin"; do
   command -v "$tool" >/dev/null 2>&1 || fail "required command not found: $tool"
 done
 
-jq -e --arg revision "$source_sha" '
+discovered_count=0
+inventory="$("$root/scripts/discover-images.sh")"
+while IFS=$'\t' read -r key component _; do
+  expected_repository="$namespace_prefix/temp-poc-$component"
+  jq -e --arg key "$key" --arg repository "$expected_repository" \
+    '.images[$key].repository == $repository' "$payload" >/dev/null || \
+    fail "promotion payload is missing discovered image: $component"
+  discovered_count=$((discovered_count + 1))
+done <<<"$inventory"
+
+jq -e --arg revision "$source_sha" --argjson imageCount "$discovered_count" '
   type == "object" and
   (keys | sort) == ["apiVersion", "images", "kind", "release", "source"] and
   .apiVersion == "scalex.io/v1alpha1" and
@@ -55,10 +68,7 @@ jq -e --arg revision "$source_sha" '
     path: "chart",
     revision: $revision
   } and
-  (.images | keys | sort) == ["batchAnalyzer", "datasetIngest", "reportGenerator"] and
-  .images.datasetIngest.repository == $datasetRepository and
-  .images.batchAnalyzer.repository == $batchAnalyzerRepository and
-  .images.reportGenerator.repository == $reportGeneratorRepository and
+  (.images | type == "object" and length == $imageCount) and
   all(.images[];
     type == "object" and
     (keys | sort) == ["digest", "repository", "sourceRevision", "tag"] and
@@ -67,9 +77,7 @@ jq -e --arg revision "$source_sha" '
     .sourceRevision == $revision and
     (.digest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
   )
-' --arg datasetRepository "$dataset_ingest_repository" \
-  --arg batchAnalyzerRepository "$batch_analyzer_repository" \
-  --arg reportGeneratorRepository "$report_generator_repository" "$payload" >/dev/null || fail 'invalid ReleasePromotion payload contract'
+' "$payload" >/dev/null || fail 'invalid ReleasePromotion payload contract'
 
 run_oras() {
   env -u HARBOR_USERNAME -u HARBOR_PASSWORD "$oras_bin" "$@"
@@ -89,6 +97,7 @@ cmp --silent "$payload" "$candidate_payload" || fail 'failed to preserve payload
 run_oras version >"$tmp/version.out" 2>"$tmp/version.err" || fail 'failed to query ORAS version'
 grep -Eq '(^|[^0-9])1\.3\.3([^0-9]|$)' "$tmp/version.out" || fail 'ORAS CLI version must be 1.3.3'
 printf '%s\n' "$harbor_password" | run_oras login \
+  "${oras_remote_args[@]}" \
   --registry-config "$registry_config" \
   --username "$harbor_username" \
   --password-stdin "${repository%%/*}" \
@@ -102,7 +111,7 @@ verify_artifact() {
   rm -rf "$work"
   mkdir -m 0700 "$work" "$pull_dir"
 
-  run_oras manifest fetch --registry-config "$registry_config" --descriptor "$reference" \
+  run_oras manifest fetch "${oras_remote_args[@]}" --registry-config "$registry_config" --descriptor "$reference" \
     >"$descriptor" 2>"$work/descriptor.err" || fail 'failed to fetch manifest descriptor'
   jq -e --arg mediaType "$manifest_type" '
     .mediaType == $mediaType and
@@ -112,7 +121,7 @@ verify_artifact() {
   digest="$(jq -r '.digest' "$descriptor")"
   size="$(jq -r '.size' "$descriptor")"
 
-  run_oras manifest fetch --registry-config "$registry_config" --output "$manifest" "$repository@$digest" \
+  run_oras manifest fetch "${oras_remote_args[@]}" --registry-config "$registry_config" --output "$manifest" "$repository@$digest" \
     >"$work/fetch.out" 2>"$work/fetch.err" || fail 'failed to fetch manifest content'
   [ "sha256:$(sha256sum "$manifest" | cut -d' ' -f1)" = "$digest" ] || fail 'manifest digest mismatch'
   [ "$(wc -c <"$manifest" | tr -d ' ')" = "$size" ] || fail 'manifest size mismatch'
@@ -129,7 +138,7 @@ verify_artifact() {
   layer_digest="$(jq -r '.layers[0].digest' "$manifest")"
   layer_size="$(jq -r '.layers[0].size' "$manifest")"
 
-  run_oras pull --registry-config "$registry_config" --no-tty --output "$pull_dir" "$repository@$digest" \
+  run_oras pull "${oras_remote_args[@]}" --registry-config "$registry_config" --no-tty --output "$pull_dir" "$repository@$digest" \
     >"$work/pull.out" 2>"$work/pull.err" || fail 'failed to pull promotion artifact'
   shopt -s nullglob dotglob
   pulled=("$pull_dir"/*)
@@ -142,13 +151,13 @@ verify_artifact() {
 }
 
 immutable_ref="$repository:sha-$source_sha-run-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
-if run_oras manifest fetch --registry-config "$registry_config" --descriptor "$immutable_ref" \
+if run_oras manifest fetch "${oras_remote_args[@]}" --registry-config "$registry_config" --descriptor "$immutable_ref" \
     >"$tmp/existing.json" 2>"$tmp/existing.err"; then
   verify_artifact "$immutable_ref" ''
 else
   grep -Eqi 'not[ -]?found|404|manifest unknown|name unknown' "$tmp/existing.err" || fail 'failed to resolve immutable artifact'
   exported_manifest="$tmp/exported-manifest.json"
-  run_oras push --registry-config "$registry_config" --no-tty \
+  run_oras push "${oras_remote_args[@]}" --registry-config "$registry_config" --no-tty \
     --artifact-type "$artifact_type" --export-manifest "$exported_manifest" \
     "$immutable_ref" "$candidate_payload:$layer_type" \
     >"$tmp/push.out" 2>"$tmp/push.err" || fail 'failed to push immutable promotion artifact'
@@ -166,9 +175,9 @@ if [ "$remote_main" != "$source_sha" ]; then
   exit 0
 fi
 
-run_oras tag --registry-config "$registry_config" "$repository@$candidate_digest" latest-verified \
+run_oras tag "${oras_remote_args[@]}" --registry-config "$registry_config" "$repository@$candidate_digest" latest-verified \
   >"$tmp/tag.out" 2>"$tmp/tag.err" || fail 'failed to move latest-verified channel'
-run_oras manifest fetch --registry-config "$registry_config" --descriptor "$repository:latest-verified" \
+run_oras manifest fetch "${oras_remote_args[@]}" --registry-config "$registry_config" --descriptor "$repository:latest-verified" \
   >"$tmp/channel-post.json" 2>"$tmp/channel-post.err" || fail 'failed to resolve latest-verified after tagging'
 post_digest="$(jq -er '.digest | select(type == "string" and test("^sha256:[0-9a-f]{64}$"))' "$tmp/channel-post.json")" || fail 'latest-verified descriptor is malformed'
 [ "$post_digest" = "$candidate_digest" ] || fail 'latest-verified does not resolve to the verified artifact digest'

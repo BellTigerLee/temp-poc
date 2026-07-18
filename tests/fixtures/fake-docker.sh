@@ -1,35 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-[ "$1 $2 $3" != "buildx imagetools inspect" ] || {
-  echo 'ERROR: failed to do request: Head "https://registry.example.com/v2/": connection refused' >&2
-  exit 1
-}
-[ "$#" -eq 5 ] || {
-  echo "unexpected docker argument count" >&2
-  exit 1
-}
-[ "$1 $2" = "image inspect" ] || {
-  echo "unexpected docker command" >&2
-  exit 1
-}
-[ "$4" = --format ] || {
-  echo "missing digest format" >&2
-  exit 1
-}
-[ "$5" = '{{json .RepoDigests}}' ] || {
-  echo "unexpected digest format" >&2
-  exit 1
-}
+if [ -n "${FAKE_DOCKER_LOG:-}" ]; then
+  printf '%q ' "$@" >>"$FAKE_DOCKER_LOG"
+  printf '\n' >>"$FAKE_DOCKER_LOG"
+fi
 
-case "$3" in
-  */temp-poc-dataset-ingest:*) digit=1 ;;
-  */temp-poc-batch-analyzer:*) digit=2 ;;
-  */temp-poc-report-generator:*) digit=3 ;;
+case "${1:-}" in
+  build|push|tag)
+    exit 0
+    ;;
+  image)
+    [ "${2:-}" = inspect ] && [ "${4:-}" = --format ] && \
+      [ "${5:-}" = '{{json .RepoDigests}}' ] || {
+      echo "unexpected docker image command" >&2
+      exit 1
+    }
+    repository="${3%:*}"
+    [[ "$repository" == */temp-poc-* ]] || {
+      echo "unexpected image reference: $3" >&2
+      exit 1
+    }
+    digest="$(printf '%s' "$repository" | sha256sum | cut -d' ' -f1)"
+    printf '["%s@sha256:%s"]\n' "$repository" "$digest"
+    ;;
   *)
-    echo "unexpected image reference: $3" >&2
+    echo "unexpected docker command: $*" >&2
     exit 1
     ;;
 esac
-repository="${3%:*}"
-printf '["%s@sha256:%064d"]\n' "$repository" "$digit"

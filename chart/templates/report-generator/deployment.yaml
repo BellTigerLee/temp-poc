@@ -5,8 +5,6 @@ metadata:
   labels:
     {{- include "temp-poc.labels" . | nindent 4 }}
     app.kubernetes.io/component: report-generator
-  annotations:
-    scalex.io/source-revision: {{ .Values.images.reportGenerator.sourceRevision | quote }}
 spec:
   replicas: {{ .Values.reportGenerator.replicas }}
   selector:

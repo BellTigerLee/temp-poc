@@ -78,6 +78,7 @@ case "${1:-}" in
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --registry-config) config="$2"; shift 2 ;;
+        --plain-http) shift ;;
         --username) username="$2"; shift 2 ;;
         --password-stdin) shift ;;
         *) shift ;;
@@ -95,6 +96,7 @@ case "${1:-}" in
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --registry-config) config="$2"; shift 2 ;;
+        --plain-http) shift ;;
         --artifact-type) [ "$2" = 'application/vnd.scalex.release-promotion.v1+json' ]; shift 2 ;;
         --export-manifest) export_path="$2"; shift 2 ;;
         --no-tty) shift ;;
@@ -113,6 +115,7 @@ case "${1:-}" in
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --registry-config) config="$2"; shift 2 ;;
+        --plain-http) shift ;;
         --descriptor) descriptor=true; shift ;;
         --output) output="$2"; shift 2 ;;
         *) reference="$1"; shift ;;
@@ -140,6 +143,7 @@ case "${1:-}" in
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --registry-config) config="$2"; shift 2 ;;
+        --plain-http) shift ;;
         --output) output="$2"; shift 2 ;;
         --no-tty) shift ;;
         *) reference="$1"; shift ;;
@@ -158,6 +162,7 @@ case "${1:-}" in
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --registry-config) config="$2"; shift 2 ;;
+        --plain-http) shift ;;
         *) if [ -z "$reference" ]; then reference="$1"; else new_tag="$1"; fi; shift ;;
       esac
     done

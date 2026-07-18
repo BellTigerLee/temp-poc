@@ -68,6 +68,8 @@ validate_workflow() {
   assert_contains "$file" \
     'PROMOTION_REPOSITORY: 10.34.25.18/playerone/temp-poc-promotions' \
     "promotion repository is incorrect"
+  assert_contains "$file" 'HARBOR_PLAIN_HTTP: "true"' \
+    "HTTP Harbor transport is not explicitly enabled"
   assert_contains "$file" '- work8' "work8 self-hosted runner label is missing"
   assert_contains "$file" './scripts/test.sh' "source and chart validation is not executed"
   assert_contains "$file" 'name: Authenticate to Harbor' "Harbor login step is missing"
@@ -77,8 +79,10 @@ validate_workflow() {
     "Harbor password secret is not wired"
   assert_contains "$file" 'docker login 10.34.25.18' "workflow does not log in to Harbor"
   assert_contains "$file" '--password-stdin' "registry passwords are not passed on stdin"
-  assert_contains "$file" './scripts/build-images.sh --push "$GITHUB_SHA"' \
+  assert_contains "$file" './scripts/build-images.sh --push --latest "$GITHUB_SHA"' \
     "images are not built and pushed from the exact source SHA"
+  assert_contains "$file" './scripts/discover-images.sh' \
+    "workflow does not validate the discovered image count"
   assert_contains "$file" \
     './scripts/create-promotion-payload.sh "$RUNNER_TEMP/promotion.json" "$GITHUB_SHA"' \
     "registry digests are not captured in a promotion payload"
@@ -103,9 +107,8 @@ validate_workflow() {
     "workflow retains redundant post-mutation chart rendering"
   assert_excludes "$file" 'scalex-federation|SCALEX_PROMOTION_APP|gh pr (create|edit)' \
     "workflow must not update the Federation repository"
-  assert_excludes "$file" '--plain-http' "workflow must not downgrade Harbor transport"
-  assert_excludes "$file" '(^|[[:space:]])image:[^#]*:latest|--tag[[:space:]]+[^[:space:]]*:latest' \
-    "workflow must not deploy or publish a mutable latest image"
+  assert_excludes "$file" '(^|[[:space:]])image:[^#]*:latest' \
+    "workflow must not deploy an image directly"
 
   if awk '
     /^[[:space:]]*run:[[:space:]]*\|/ {

@@ -83,6 +83,7 @@ run_publish() {
   FAKE_ORAS_PASSWORD="$PASSWORD" \
   ORAS_BIN="$FAKE_ORAS" \
   PROMOTION_REPOSITORY="$REPOSITORY" \
+  HARBOR_PLAIN_HTTP=true \
   HARBOR_USERNAME=robot \
   HARBOR_PASSWORD="$PASSWORD" \
   GITHUB_RUN_ID="$run_id" \
@@ -111,6 +112,7 @@ happy_stdout="$(run_publish "$happy" "$current_payload" "$current_sha" 101 2>"$h
 [ "$(resolve "$happy" "$REPOSITORY:latest-verified")" = "$happy_stdout" ]
 [ "$(resolve "$happy" "$REPOSITORY:sha-$current_sha-run-101-attempt-1")" = "$happy_stdout" ]
 assert_cleanup "$happy"
+grep -q -- '--plain-http' "$happy/commands.log"
 
 pushes="$(grep -c '^push ' "$happy/commands.log")"
 [ "$(run_publish "$happy" "$current_payload" "$current_sha" 101)" = "$happy_stdout" ]

@@ -32,7 +32,7 @@ images/       one Dockerfile per component
 src/          shared typed service implementation
 scripts/      local build and validation entrypoints
 tests/        application and rendered-chart tests
-compose.yaml  Docker Compose image build definitions
+compose.yaml  optional local Compose definitions (not the CI image inventory)
 ```
 
 Local validation is:
@@ -41,32 +41,62 @@ Local validation is:
 ./scripts/test.sh
 ```
 
-Build all component images through Docker Compose. The tag defaults to
-`sha-<current-git-commit>`:
+Build every component that has an `images/<component>/Dockerfile`. Discovery is
+sorted and automatic; the tag defaults to `sha-<current-git-commit>`:
 
 ```bash
 ./scripts/build-images.sh
 ```
 
-Build and push them to the default `docker.io/belltigerlee` namespace:
+Build and push immutable SHA tags to the local Harbor namespace:
 
 ```bash
-docker login docker.io
-./scripts/build-images.sh --push
+docker login 10.34.25.18
+./scripts/build-images.sh --registry 10.34.25.18/playerone --push
 ```
 
 Use another registry namespace or an explicit source revision when needed:
 
 ```bash
 ./scripts/build-images.sh \
-  --registry docker.io/example \
-  --push \
+  --registry 10.34.25.18/playerone \
+  --push --latest \
   <40-character-git-sha>
 ```
 
-`chart/values.yaml` stays valid as standalone chart defaults, but it is not the
-release state. Pushes to `main` run `.github/workflows/promote.yaml`, which
-validates the source and chart, builds the exact-SHA images, and publishes one
+`--latest` also moves each component repository's mutable `latest` tag to the
+built SHA and therefore requires `--push`. The main-branch workflow uses this
+mode for the current HTTP-only local Harbor. The Docker daemon must list
+`10.34.25.18` as an insecure registry, while ORAS receives `--plain-http`
+through `HARBOR_PLAIN_HTTP=true`.
+
+The chart's `images` values are user-owned deployment defaults and contain only
+`repository`, `tag`, and `pullPolicy`. A `latest` tag requires `Always`; an
+immutable SHA tag may use either `Always` or `IfNotPresent`. CI-generated
+digests and source revisions live in the promotion artifact, not in base
+`values.yaml`.
+
+## Deployed workload behavior
+
+The chart deploys two long-running HTTP `Deployment` workloads and one periodic
+`CronJob`:
+
+- `dataset-ingest` serves `GET /dataset.csv` on port 8080 through a Service.
+- `batch-analyzer` runs every two minutes by default, downloads that CSV from
+  `DATASET_URL`, analyzes it, and posts the result to `REPORT_URL`.
+- `report-generator` receives `POST /result`, stores the latest result in the
+  running process, and exposes the report through its HTTP API and Service.
+
+With Karmada enabled, dataset ingest and report generator are placed on cluster
+`b`, while batch analyzer is placed on cluster `c`. Override policies change
+the two Services to `LoadBalancer` only on their target cluster and assign the
+configured Cilium LB IPs.
+
+`chart/values.yaml` stays valid as user-owned standalone chart defaults, but it
+is not the immutable release state. Pushes to `main` run
+`.github/workflows/promote.yaml`, which validates the source and chart,
+discovers every Dockerfile, builds and pushes exact-SHA plus `latest` images,
+and publishes one
 immutable OCI promotion artifact to `10.34.25.18/playerone/temp-poc-promotions`.
 The payload stores the source SHA in `source.revision` and the image deployment
 digests in `images`. The OCI transport digest identifies the OCI manifest and

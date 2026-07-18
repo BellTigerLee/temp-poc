@@ -5,8 +5,6 @@ metadata:
   labels:
     {{- include "temp-poc.labels" . | nindent 4 }}
     app.kubernetes.io/component: batch-analyzer
-  annotations:
-    scalex.io/source-revision: {{ .Values.images.batchAnalyzer.sourceRevision | quote }}
 spec:
   schedule: {{ .Values.batchAnalyzer.schedule | quote }}
   concurrencyPolicy: Forbid
