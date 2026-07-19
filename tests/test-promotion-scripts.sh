@@ -64,7 +64,13 @@ FAKE_DOCKER_LOG="$tmp/chart-docker.log" DOCKER_BIN="$ROOT/tests/fixtures/fake-do
 helm template temp-poc "$ROOT/chart" --namespace scalex-temp-poc \
   --values "$tmp/chart-generated-values.yaml" >"$tmp/rendered.yaml"
 "$ROOT/scripts/validate-render.sh" "$tmp/rendered.yaml"
-grep -Eq 'image: ".*:v0\.1\.0@sha256:[0-9a-f]{64}"' "$tmp/rendered.yaml"
+rendered_image_count="$(grep -Ec \
+  '^[[:space:]]+image: ".*:[A-Za-z0-9_][A-Za-z0-9._-]{0,127}@sha256:[0-9a-f]{64}"$' \
+  "$tmp/rendered.yaml" || true)"
+[ "$rendered_image_count" -eq 3 ] || {
+  echo "expected 3 exact-tag digest-pinned workload images, found $rendered_image_count" >&2
+  exit 1
+}
 
 if VALUES_FILE="$tmp/values.yaml" DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
     "$ROOT/scripts/build-images.sh" --push "$revision" \
