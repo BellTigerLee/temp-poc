@@ -3,15 +3,15 @@ fullnameOverride: ""
 images:
   dataset-ingest:
     repository: 10.34.25.18/playerone/temp-poc-dataset-ingest
-    tag: v0.1.0
+    tag: v0.1.1
     pullPolicy: IfNotPresent
   batch-analyzer:
     repository: 10.34.25.18/playerone/temp-poc-batch-analyzer
-    tag: v0.1.0
+    tag: v0.1.1
     pullPolicy: IfNotPresent
   report-generator:
     repository: 10.34.25.18/playerone/temp-poc-report-generator
-    tag: v0.1.0
+    tag: v0.1.1
     pullPolicy: IfNotPresent
 datasetIngest:
   replicas: 1
