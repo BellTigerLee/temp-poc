@@ -25,8 +25,8 @@ spec:
         {{- include "temp-poc.podSecurityContext" . | nindent 8 }}
       containers:
         - name: dataset-ingest
-          image: {{ include "temp-poc.image" .Values.images.datasetIngest | quote }}
-          imagePullPolicy: {{ .Values.images.datasetIngest.pullPolicy }}
+          image: {{ include "temp-poc.image" (index .Values.images "dataset-ingest") | quote }}
+          imagePullPolicy: {{ (index .Values.images "dataset-ingest").pullPolicy }}
           ports:
             - name: http
               containerPort: 8080

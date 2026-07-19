@@ -27,8 +27,8 @@ spec:
             {{- include "temp-poc.podSecurityContext" . | nindent 12 }}
           containers:
             - name: batch-analyzer
-              image: {{ include "temp-poc.image" .Values.images.batchAnalyzer | quote }}
-              imagePullPolicy: {{ .Values.images.batchAnalyzer.pullPolicy }}
+              image: {{ include "temp-poc.image" (index .Values.images "batch-analyzer") | quote }}
+              imagePullPolicy: {{ (index .Values.images "batch-analyzer").pullPolicy }}
               env:
                 - name: DATASET_URL
                   value: {{ .Values.batchAnalyzer.datasetUrl | quote }}

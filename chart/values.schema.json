@@ -8,13 +8,9 @@
     "fullnameOverride": {"type": "string"},
     "images": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["datasetIngest", "batchAnalyzer", "reportGenerator"],
-      "properties": {
-        "datasetIngest": {"$ref": "#/$defs/image"},
-        "batchAnalyzer": {"$ref": "#/$defs/image"},
-        "reportGenerator": {"$ref": "#/$defs/image"}
-      }
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"},
+      "additionalProperties": {"$ref": "#/$defs/image"}
     },
     "datasetIngest": {"$ref": "#/$defs/serviceComponent"},
     "batchAnalyzer": {
@@ -54,14 +50,12 @@
       "additionalProperties": false,
       "required": ["repository", "tag", "pullPolicy"],
       "properties": {
-        "repository": {"type": "string", "minLength": 1},
-        "tag": {"type": "string", "minLength": 1},
-        "pullPolicy": {"enum": ["Always", "IfNotPresent"]}
-      },
-      "allOf": [{
-        "if": {"properties": {"tag": {"const": "latest"}}, "required": ["tag"]},
-        "then": {"properties": {"pullPolicy": {"const": "Always"}}}
-      }]
+        "repository": {"type": "string", "pattern": "^[A-Za-z0-9.-]+(:[0-9]+)?/[A-Za-z0-9._/-]+$"},
+        "tag": {"type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$"},
+        "pullPolicy": {"enum": ["Always", "IfNotPresent"]},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "sourceRevision": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      }
     },
     "serviceComponent": {
       "type": "object",

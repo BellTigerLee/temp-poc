@@ -1,18 +1,18 @@
 nameOverride: ""
 fullnameOverride: ""
 images:
-  datasetIngest:
+  dataset-ingest:
     repository: 10.34.25.18/playerone/temp-poc-dataset-ingest
-    tag: latest
-    pullPolicy: Always
-  batchAnalyzer:
+    tag: v0.1.0
+    pullPolicy: IfNotPresent
+  batch-analyzer:
     repository: 10.34.25.18/playerone/temp-poc-batch-analyzer
-    tag: latest
-    pullPolicy: Always
-  reportGenerator:
+    tag: v0.1.0
+    pullPolicy: IfNotPresent
+  report-generator:
     repository: 10.34.25.18/playerone/temp-poc-report-generator
-    tag: latest
-    pullPolicy: Always
+    tag: v0.1.0
+    pullPolicy: IfNotPresent
 datasetIngest:
   replicas: 1
   service:

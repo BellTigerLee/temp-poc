@@ -41,48 +41,70 @@ Local validation is:
 ./scripts/test.sh
 ```
 
-Build every component that has an `images/<component>/Dockerfile`. Discovery is
-sorted and automatic; the tag defaults to `sha-<current-git-commit>`:
+`chart/values.yaml` is the canonical image inventory. Each kebab-case image key
+defines its exact `repository`, OCI `tag`, and `pullPolicy`. Stable `vX.Y.Z`
+tags are recommended for later Federation selection:
+
+```yaml
+images:
+  custom-worker:
+    repository: 10.34.25.18/playerone/custom-worker
+    tag: v0.1.0
+    pullPolicy: IfNotPresent
+```
+
+If `images/<key>/Dockerfile` exists, CI always builds and pushes the configured
+`repository:tag`. If it does not exist, CI pulls that existing image so it can
+resolve its registry digest. The image map is not limited to the three default
+workloads; those entries remain only because this chart currently deploys those
+three workloads.
+
+Build the local Dockerfile-backed entries without pushing:
 
 ```bash
 ./scripts/build-images.sh
 ```
 
-Build and push immutable SHA tags to the local Harbor namespace:
+Build or resolve every configured image, push the Dockerfile-backed images, and
+write CI-owned digest metadata:
 
 ```bash
 docker login 10.34.25.18
-./scripts/build-images.sh --registry 10.34.25.18/playerone --push
+./scripts/build-images.sh --push \
+  --generated-values /tmp/temp-poc-generated-values.yaml \
+  "$(git rev-parse HEAD)"
 ```
 
-Use another registry namespace or an explicit source revision when needed:
+The generated file contains only CI-owned fields and is merged on top of the
+base values during verification or deployment selection:
+
+```yaml
+images:
+  custom-worker:
+    digest: sha256:...
+    sourceRevision: 77a324f98372aeafaec47b0f9d26e2f2fb0d17b6
+```
+
+To publish a new image version, edit the relevant tags in
+`chart/values.yaml`, commit that explicit selection, and push `main`:
 
 ```bash
-./scripts/build-images.sh \
-  --registry 10.34.25.18/playerone \
-  --push --release-tag 0.1.0 --latest \
-  <40-character-git-sha>
+git switch main
+git pull --ff-only origin main
+git diff -- chart/values.yaml
+git add chart/values.yaml
+git commit -m "Bump temp-poc images to v0.1.1"
+git push origin main
 ```
 
-`--release-tag` requires an `X.Y.Z` semantic version. `--latest` moves each
-component repository's mutable `latest` tag to that release and therefore
-requires both `--push` and `--release-tag`. The Docker daemon must list
-`10.34.25.18` as an insecure registry. ORAS promotion publication is currently
-commented out because this workflow only builds and pushes component images.
-
-The workflow uses Git tags as release events:
-
-- A `main` push publishes only the immutable `sha-<commit>` tag.
-- A `v0.1.0` Git tag publishes `sha-<commit>`, `0.1.0`, and `latest`.
-- A later `v0.1.1` tag publishes `0.1.1` and moves `latest` to the same digest.
-- Publishing an older version after a newer version does not move `latest`
-  backwards; only the highest stable SemVer tag may update it.
-
-The chart's `images` values are user-owned deployment defaults and contain only
-`repository`, `tag`, and `pullPolicy`. A `latest` tag requires `Always`; an
-immutable SHA tag may use either `Always` or `IfNotPresent`. CI-generated
-digests and source revisions live in the promotion artifact, not in base
-`values.yaml`.
+Docker/Harbor does not infer the highest semantic version and never moves a
+`latest` tag automatically. If a user explicitly configures `tag: latest`, this
+Child treats it as the literal tag `latest`; it performs no version lookup or
+extra tagging. A future ScaleX Federation policy owns selection of the highest
+verified SemVer and supplies an exact repository, tag, and digest to Helm. Helm
+only renders those already selected values. The Docker daemon must list
+`10.34.25.18` as an insecure registry while Harbor remains HTTP-only. ORAS
+publication remains commented out.
 
 ## Deployed workload behavior
 
@@ -101,10 +123,9 @@ the two Services to `LoadBalancer` only on their target cluster and assign the
 configured Cilium LB IPs.
 
 `chart/values.yaml` stays valid as user-owned standalone chart defaults, but it
-is not the immutable release state. Pushes to `main` and stable `vX.Y.Z` tags run
-`.github/workflows/promote.yaml`, which validates the source and chart,
-discovers every Dockerfile, and pushes the appropriate SHA and release tags. It
-also verifies the pushed registry digests locally. ORAS publication of the
-generated promotion payload is preserved as commented workflow code for later
-release-tracking work; it does not execute now. CI does not commit chart values,
-and `scripts/apply-image-metadata.sh` remains a manual, non-authoritative helper.
+is not immutable release state. A push to `main` runs
+`.github/workflows/promote.yaml`, which validates the source and chart, processes
+the arbitrary image map, and uploads `generated-values.yaml` plus
+`promotion.json` as a workflow artifact. It does not infer or automatically
+move `latest`, update Federation, deploy Helm, or commit generated values back
+to Git. The Helm render performed in CI is validation only.

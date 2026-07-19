@@ -16,7 +16,11 @@ scalex.io/release: {{ .Release.Name }}
 {{- end }}
 
 {{- define "temp-poc.image" -}}
+{{- if .digest -}}
+{{- printf "%s:%s@%s" .repository .tag .digest -}}
+{{- else -}}
 {{- printf "%s:%s" .repository .tag -}}
+{{- end -}}
 {{- end }}
 
 {{- define "temp-poc.podSecurityContext" -}}

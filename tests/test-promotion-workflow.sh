@@ -39,20 +39,17 @@ validate_workflow() {
   assert_contains "$file" 'build-and-push-images:' \
     "image build-and-push job is missing"
   assert_contains "$file" '- main' "main branch trigger is missing"
-  assert_contains "$file" '- "v*.*.*"' "semantic-version tag trigger is missing"
   assert_contains "$file" 'workflow_dispatch: {}' "manual workflow trigger is missing"
-  assert_contains "$file" 'paths-ignore:' "paths-ignore is missing"
-  assert_contains "$file" '- chart/values.yaml' \
-    "chart values are not excluded from recursive builds"
+  assert_excludes "$file" '^[[:space:]]*tags:' "Git tag release trigger is still active"
+  assert_excludes "$file" 'paths-ignore:' "chart values changes do not trigger image publication"
   assert_contains "$file" 'contents: read' "workflow contents permission is not read-only"
   assert_excludes "$file" 'contents:[[:space:]]*write' "workflow retains write permission"
-  assert_contains "$file" 'group: temp-poc-image-publish' \
+  assert_contains "$file" 'group: temp-poc-image-publish-main' \
     "image publishers are not globally serialized"
   assert_contains "$file" 'cancel-in-progress: false' \
     "image publication can be interrupted by a newer run"
-  assert_contains "$file" \
-    "if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')" \
-    "release tag jobs are filtered out"
+  assert_contains "$file" "if: github.ref == 'refs/heads/main'" \
+    "main branch job filter is missing"
 
   assert_contains "$file" \
     'uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683' \
@@ -73,9 +70,10 @@ validate_workflow() {
     "ORAS setup action is active"
   assert_no_active_line "$file" 'oras[[:space:]]+version' \
     "ORAS version assertion is active"
+  assert_contains "$file" \
+    'uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' \
+    "generated metadata upload action is missing or unpinned"
 
-  assert_contains "$file" 'IMAGE_REGISTRY: 10.34.25.18/playerone' \
-    "Harbor project is not the image registry"
   assert_contains "$file" '- work8' "work8 self-hosted runner label is missing"
   assert_contains "$file" './scripts/test.sh' "source and chart validation is not executed"
   assert_contains "$file" 'name: Authenticate to Harbor' "Harbor login step is missing"
@@ -85,20 +83,22 @@ validate_workflow() {
     "Harbor password secret is not wired"
   assert_contains "$file" 'docker login 10.34.25.18' "workflow does not log in to Harbor"
   assert_contains "$file" '--password-stdin' "registry passwords are not passed on stdin"
-  assert_contains "$file" \
-    './scripts/build-images.sh --push "${release_args[@]}" "$GITHUB_SHA"' \
-    "images are not built and pushed from the exact source SHA"
-  assert_contains "$file" 'release_args=(--release-tag "${GITHUB_REF_NAME#v}")' \
-    "semantic version is not passed to the image builder"
-  assert_contains "$file" 'release_args+=(--latest)' \
-    "the highest semantic version does not move latest"
-  assert_contains "$file" "git tag --list 'v*' --sort=-v:refname" \
-    "latest release selection is not version-aware"
-  assert_contains "$file" './scripts/discover-images.sh' \
-    "workflow does not validate the discovered image count"
-  assert_contains "$file" \
-    './scripts/create-promotion-payload.sh "$RUNNER_TEMP/promotion.json" "$GITHUB_SHA"' \
-    "registry digests are not captured in a promotion payload"
+  assert_contains "$file" './scripts/build-images.sh --push \' \
+    "values-driven image builder is not invoked"
+  assert_contains "$file" '--generated-values "$RUNNER_TEMP/generated-values.yaml"' \
+    "generated image values are not written"
+  assert_contains "$file" './scripts/create-promotion-payload.sh \' \
+    "promotion metadata is not created"
+  assert_contains "$file" '"$RUNNER_TEMP/generated-values.yaml" \' \
+    "generated values are not passed to promotion metadata creation"
+  assert_contains "$file" 'name: image-metadata-${{ github.sha }}' \
+    "generated metadata artifact is not source-specific"
+  assert_contains "$file" '${{ runner.temp }}/generated-values.yaml' \
+    "generated values are not uploaded"
+  assert_contains "$file" 'helm template temp-poc chart' \
+    "digest-pinned Helm rendering is not validated"
+  assert_contains "$file" './scripts/validate-render.sh "$RUNNER_TEMP/rendered-with-digests.yaml"' \
+    "digest-pinned render contract is not validated"
   assert_no_active_line "$file" './scripts/publish-promotion-artifact\.sh' \
     "verified promotion publisher is active"
 
@@ -113,8 +113,6 @@ validate_workflow() {
     "workflow still mutates chart image metadata"
   assert_excludes "$file" 'git[[:space:]]+(config|add|commit|push)' \
     "workflow still commits or pushes Git state"
-  assert_excludes "$file" 'helm[[:space:]]+(lint|template)|validate-render\.sh' \
-    "workflow retains redundant post-mutation chart rendering"
   assert_excludes "$file" 'scalex-federation|SCALEX_PROMOTION_APP|gh pr (create|edit)' \
     "workflow must not update the Federation repository"
   assert_excludes "$file" '(^|[[:space:]])image:[^#]*:latest' \
@@ -162,7 +160,7 @@ expect_rejected "$tmp/write-permission.yaml" "write-permission fixture was accep
 sed '/if: always()/d' "$workflow" >"$tmp/missing-cleanup.yaml"
 expect_rejected "$tmp/missing-cleanup.yaml" "missing-cleanup fixture was accepted"
 
-sed 's/group: temp-poc-image-publish/group: temp-poc-image-${{ github.ref }}/' \
+sed 's/group: temp-poc-image-publish-main/group: temp-poc-image-${{ github.ref }}/' \
   "$workflow" >"$tmp/wrong-concurrency.yaml"
 expect_rejected "$tmp/wrong-concurrency.yaml" "wrong-concurrency fixture was accepted"
 

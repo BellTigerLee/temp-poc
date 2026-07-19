@@ -25,8 +25,8 @@ spec:
         {{- include "temp-poc.podSecurityContext" . | nindent 8 }}
       containers:
         - name: report-generator
-          image: {{ include "temp-poc.image" .Values.images.reportGenerator | quote }}
-          imagePullPolicy: {{ .Values.images.reportGenerator.pullPolicy }}
+          image: {{ include "temp-poc.image" (index .Values.images "report-generator") | quote }}
+          imagePullPolicy: {{ (index .Values.images "report-generator").pullPolicy }}
           ports:
             - name: http
               containerPort: 8080

@@ -7,7 +7,7 @@ if [ -n "${FAKE_DOCKER_LOG:-}" ]; then
 fi
 
 case "${1:-}" in
-  build|push|tag)
+  build|push|pull|tag)
     exit 0
     ;;
   image)
@@ -17,7 +17,7 @@ case "${1:-}" in
       exit 1
     }
     repository="${3%:*}"
-    [[ "$repository" == */temp-poc-* ]] || {
+    [[ "$repository" == */* ]] || {
       echo "unexpected image reference: $3" >&2
       exit 1
     }

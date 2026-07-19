@@ -2,30 +2,30 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-registry="${IMAGE_REGISTRY:-docker.io/belltigerlee}"
-docker_bin="${DOCKER_BIN:-docker}"
+values="${VALUES_FILE:-$root/chart/values.yaml}"
+yq_bin="${YQ_BIN:-yq}"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/create-promotion-payload.sh OUTPUT [REVISION]
+Usage: ./scripts/create-promotion-payload.sh OUTPUT GENERATED_VALUES [REVISION]
 
-Resolve the registry digest for every temp-poc image tagged with REVISION and
-write the strict ScaleX ReleasePromotion JSON payload. REVISION defaults to the
-current Git commit.
+Merge user-managed image values with CI-generated digest/sourceRevision values
+and write the ScaleX ReleasePromotion JSON payload.
 
 Environment:
-  IMAGE_REGISTRY  Registry namespace (default: docker.io/belltigerlee)
-  DOCKER_BIN      Docker-compatible executable used for inspection
+  VALUES_FILE  User-managed values file (default: chart/values.yaml)
+  YQ_BIN       yq-compatible executable (default: yq)
 EOF
 }
 
-[ "$#" -ge 1 ] && [ "$#" -le 2 ] || {
+[ "$#" -ge 2 ] && [ "$#" -le 3 ] || {
   usage >&2
   exit 2
 }
 
 output="$1"
-revision="${2:-$(git -C "$root" rev-parse HEAD)}"
+generated_values="$2"
+revision="${3:-$(git -C "$root" rev-parse HEAD)}"
 [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || {
   echo "revision must be a 40-character lowercase Git SHA" >&2
   exit 2
@@ -34,19 +34,14 @@ revision="${2:-$(git -C "$root" rev-parse HEAD)}"
   echo "revision cannot be the all-zero placeholder" >&2
   exit 2
 }
-registry="${registry%/}"
-[ -n "$registry" ] || {
-  echo "registry must not be empty" >&2
-  exit 2
-}
-command -v "$docker_bin" >/dev/null 2>&1 || {
-  echo "Docker-compatible command not found: $docker_bin" >&2
-  exit 1
-}
-command -v jq >/dev/null 2>&1 || {
-  echo "required command not found: jq" >&2
-  exit 1
-}
+[ -f "$values" ] || { echo "values file not found: $values" >&2; exit 1; }
+[ -f "$generated_values" ] || { echo "generated values file not found: $generated_values" >&2; exit 1; }
+for tool in jq "$yq_bin"; do
+  command -v "$tool" >/dev/null 2>&1 || {
+    echo "required command not found: $tool" >&2
+    exit 1
+  }
+done
 [ -d "$(dirname "$output")" ] || {
   echo "output directory does not exist: $(dirname "$output")" >&2
   exit 1
@@ -67,19 +62,26 @@ jq -n --arg revision "$revision" '{
   images: {}
 }' >"$tmp"
 
-inventory="$("$root/scripts/discover-images.sh")"
-while IFS=$'\t' read -r key component _; do
-  repository="$registry/temp-poc-$component"
-  tag="sha-$revision"
-  repo_digests="$($docker_bin image inspect "$repository:$tag" --format '{{json .RepoDigests}}')"
-  digest="$(jq -er --arg prefix "$repository@" '
-    .[] | select(startswith($prefix)) | sub("^[^@]+@"; "")
-  ' <<<"$repo_digests")" || {
-    echo "pushed image has no matching repository digest: $repository:$tag" >&2
+images_json="$("$yq_bin" e -o=json '.images' "$values")"
+metadata_json="$("$yq_bin" e -o=json '.images' "$generated_values")"
+base_keys="$(jq -r 'keys[]' <<<"$images_json" | LC_ALL=C sort)"
+metadata_keys="$(jq -r 'keys[]' <<<"$metadata_json" | LC_ALL=C sort)"
+[ -n "$base_keys" ] && [ "$base_keys" = "$metadata_keys" ] || {
+  echo "generated values must contain exactly the user-managed image keys" >&2
+  exit 1
+}
+
+while IFS= read -r key; do
+  repository="$(jq -er --arg key "$key" '.[$key].repository' <<<"$images_json")"
+  tag="$(jq -er --arg key "$key" '.[$key].tag' <<<"$images_json")"
+  digest="$(jq -er --arg key "$key" '.[$key].digest' <<<"$metadata_json")"
+  source_revision="$(jq -er --arg key "$key" '.[$key].sourceRevision' <<<"$metadata_json")"
+  [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+    echo "generated image digest is invalid: $key" >&2
     exit 1
   }
-  [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
-    echo "registry returned an invalid manifest digest: $repository:$tag" >&2
+  [ "$source_revision" = "$revision" ] || {
+    echo "generated image source revision does not match: $key" >&2
     exit 1
   }
 
@@ -96,7 +98,7 @@ while IFS=$'\t' read -r key component _; do
       sourceRevision: $revision
     }' "$tmp" >"$next"
   mv "$next" "$tmp"
-done <<<"$inventory"
+done <<<"$base_keys"
 
 mv "$tmp" "$output"
 trap - EXIT

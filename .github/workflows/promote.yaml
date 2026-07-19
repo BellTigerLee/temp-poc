@@ -4,29 +4,23 @@ on:
   push:
     branches:
       - main
-    tags:
-      - "v*.*.*"
-    paths-ignore:
-      - chart/values.yaml
   workflow_dispatch: {}
 
 permissions:
   contents: read
 
 concurrency:
-  group: temp-poc-image-publish
+  group: temp-poc-image-publish-main
   cancel-in-progress: false
 
 env:
-  # IMAGE_REGISTRY: docker.io/belltigerlee
-  IMAGE_REGISTRY: 10.34.25.18/playerone
   YQ_VERSION: v4.45.4
   YQ_SHA256: b96de04645707e14a12f52c37e6266832e03c29e95b9b139cddcae7314466e69
 
 jobs:
   build-and-push-images:
     name: Build and push images
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/main'
     # runs-on: ubuntu-24.04
     runs-on:
       - self-hosted
@@ -116,36 +110,32 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          release_args=()
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            semver_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
-            [[ "$GITHUB_REF_NAME" =~ $semver_pattern ]] || {
-              echo "release tag must use vX.Y.Z semantic version format" >&2
-              exit 2
-            }
-            release_args=(--release-tag "${GITHUB_REF_NAME#v}")
+          ./scripts/build-images.sh --push \
+            --generated-values "$RUNNER_TEMP/generated-values.yaml" \
+            "$GITHUB_SHA"
 
-            latest_release=""
-            while IFS= read -r candidate; do
-              if [[ "$candidate" =~ $semver_pattern ]]; then
-                latest_release="$candidate"
-                break
-              fi
-            done < <(git tag --list 'v*' --sort=-v:refname)
-            if [[ "$GITHUB_REF_NAME" == "$latest_release" ]]; then
-              release_args+=(--latest)
-            fi
-          fi
-          ./scripts/build-images.sh --push "${release_args[@]}" "$GITHUB_SHA"
-
-      - name: Resolve immutable registry digests
+      - name: Create promotion metadata
         shell: bash
         run: |
           set -euo pipefail
-          ./scripts/create-promotion-payload.sh "$RUNNER_TEMP/promotion.json" "$GITHUB_SHA"
-          discovered_count="$(./scripts/discover-images.sh | wc -l | tr -d ' ')"
-          jq -e --argjson count "$discovered_count" '.images | length == $count' \
-            "$RUNNER_TEMP/promotion.json" >/dev/null
+          ./scripts/create-promotion-payload.sh \
+            "$RUNNER_TEMP/promotion.json" \
+            "$RUNNER_TEMP/generated-values.yaml" \
+            "$GITHUB_SHA"
+          helm template temp-poc chart --namespace scalex-temp-poc \
+            --values "$RUNNER_TEMP/generated-values.yaml" \
+            > "$RUNNER_TEMP/rendered-with-digests.yaml"
+          ./scripts/validate-render.sh "$RUNNER_TEMP/rendered-with-digests.yaml"
+
+      - name: Upload generated image metadata
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image-metadata-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/generated-values.yaml
+            ${{ runner.temp }}/promotion.json
+          if-no-files-found: error
+          retention-days: 30
 
       # - name: Publish verified promotion
       #   shell: bash

@@ -6,123 +6,101 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 revision=1111111111111111111111111111111111111111
 
-FAKE_DOCKER_LOG="$tmp/docker.log" DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
-  IMAGE_REGISTRY=registry.example.com/team \
-  "$ROOT/scripts/build-images.sh" --push "$revision"
-[ "$(grep -c '^build ' "$tmp/docker.log")" -eq 3 ]
-[ "$(grep -c '^push ' "$tmp/docker.log")" -eq 3 ]
-! grep -q '^tag ' "$tmp/docker.log"
+mkdir -p "$tmp/images/custom-worker"
+: >"$tmp/images/custom-worker/Dockerfile"
+cat >"$tmp/values.yaml" <<'YAML'
+images:
+  custom-worker:
+    repository: registry.example.com/team/custom-worker
+    tag: v0.1.0
+    pullPolicy: IfNotPresent
+  external-data:
+    repository: registry.example.com/team/external-data
+    tag: v2.3.4
+    pullPolicy: Always
+YAML
+
+FAKE_DOCKER_LOG="$tmp/docker.log" VALUES_FILE="$tmp/values.yaml" \
+  IMAGES_DIR="$tmp/images" DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
+  "$ROOT/scripts/build-images.sh" --push \
+    --generated-values "$tmp/generated-values.yaml" "$revision" >/dev/null
+
+[ "$(grep -c '^build ' "$tmp/docker.log")" -eq 1 ]
+[ "$(grep -c '^push ' "$tmp/docker.log")" -eq 1 ]
+[ "$(grep -c '^pull ' "$tmp/docker.log")" -eq 1 ]
+[ "$(grep -c '^image inspect ' "$tmp/docker.log")" -eq 2 ]
+grep -Fq 'registry.example.com/team/custom-worker:v0.1.0' "$tmp/docker.log"
+grep -Fq 'registry.example.com/team/external-data:v2.3.4' "$tmp/docker.log"
 ! grep -Fq ':latest' "$tmp/docker.log"
 
-FAKE_DOCKER_LOG="$tmp/release-docker.log" DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
-  IMAGE_REGISTRY=registry.example.com/team \
-  "$ROOT/scripts/build-images.sh" --push --release-tag 0.1.0 --latest "$revision"
-[ "$(grep -c '^build ' "$tmp/release-docker.log")" -eq 3 ]
-[ "$(grep -c '^push ' "$tmp/release-docker.log")" -eq 9 ]
-[ "$(grep -c '^tag ' "$tmp/release-docker.log")" -eq 6 ]
-grep -Fq 'temp-poc-dataset-ingest:0.1.0' "$tmp/release-docker.log"
-grep -Fq 'temp-poc-dataset-ingest:latest' "$tmp/release-docker.log"
-
-DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
-  IMAGE_REGISTRY=registry.example.com/team \
-  "$ROOT/scripts/create-promotion-payload.sh" "$tmp/promotion.json" "$revision" >/dev/null
-
-jq -e --arg revision "$revision" '
-  .apiVersion == "scalex.io/v1alpha1" and
-  .kind == "ReleasePromotion" and
-  .release == "temp-poc" and
-  .source == {
-    repoURL: "https://github.com/BellTigerLee/temp-poc.git",
-    path: "chart",
-    revision: $revision
-  } and
-  (.images | keys | sort) == ["batchAnalyzer", "datasetIngest", "reportGenerator"] and
+yq e -o=json '.' "$tmp/generated-values.yaml" | jq -e --arg revision "$revision" '
+  (.images | keys | sort) == ["custom-worker", "external-data"] and
   all(.images[];
-    .tag == ("sha-" + $revision) and
+    (.digest | test("^sha256:[0-9a-f]{64}$")) and
+    .sourceRevision == $revision
+  )
+' >/dev/null
+
+VALUES_FILE="$tmp/values.yaml" "$ROOT/scripts/create-promotion-payload.sh" \
+  "$tmp/promotion.json" "$tmp/generated-values.yaml" "$revision" >/dev/null
+jq -e --arg revision "$revision" '
+  .source.revision == $revision and
+  (.images | keys | sort) == ["custom-worker", "external-data"] and
+  .images["custom-worker"].repository == "registry.example.com/team/custom-worker" and
+  .images["custom-worker"].tag == "v0.1.0" and
+  all(.images[];
     .sourceRevision == $revision and
-    (.repository | startswith("registry.example.com/team/temp-poc-")) and
     (.digest | test("^sha256:[0-9a-f]{64}$"))
   )
 ' "$tmp/promotion.json" >/dev/null
 
-cp "$ROOT/chart/values.yaml" "$tmp/values.yaml"
-schedule_before="$(yq e -r '.batchAnalyzer.schedule' "$tmp/values.yaml")"
-"$ROOT/scripts/apply-image-metadata.sh" "$tmp/promotion.json" "$tmp/values.yaml" >/dev/null
+FAKE_DOCKER_LOG="$tmp/chart-docker.log" DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
+  "$ROOT/scripts/build-images.sh" --push \
+    --generated-values "$tmp/chart-generated-values.yaml" "$revision" >/dev/null
+[ "$(grep -c '^build ' "$tmp/chart-docker.log")" -eq 3 ]
+[ "$(grep -c '^push ' "$tmp/chart-docker.log")" -eq 3 ]
+! grep -q '^pull ' "$tmp/chart-docker.log"
 
-for mapping in \
-  datasetIngest:dataset-ingest \
-  batchAnalyzer:batch-analyzer \
-  reportGenerator:report-generator; do
-  component="${mapping%%:*}"
-  suffix="${mapping#*:}"
-  COMPONENT="$component" yq e -e \
-    '.images[strenv(COMPONENT)].repository == "registry.example.com/team/temp-poc-'"$suffix"'"' \
-    "$tmp/values.yaml" >/dev/null
-  COMPONENT="$component" REVISION="$revision" yq e -e \
-    '.images[strenv(COMPONENT)].tag == "sha-" + strenv(REVISION)' \
-    "$tmp/values.yaml" >/dev/null
-done
-yq e -e '.images[] | has("digest") == false and has("sourceRevision") == false' \
-  "$tmp/values.yaml" >/dev/null
-[ "$(yq e -r '.batchAnalyzer.schedule' "$tmp/values.yaml")" = "$schedule_before" ] || {
-  echo "non-image chart values changed while applying image metadata" >&2
+helm template temp-poc "$ROOT/chart" --namespace scalex-temp-poc \
+  --values "$tmp/chart-generated-values.yaml" >"$tmp/rendered.yaml"
+"$ROOT/scripts/validate-render.sh" "$tmp/rendered.yaml"
+grep -Eq 'image: ".*:v0\.1\.0@sha256:[0-9a-f]{64}"' "$tmp/rendered.yaml"
+
+if VALUES_FILE="$tmp/values.yaml" DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
+    "$ROOT/scripts/build-images.sh" --push "$revision" \
+    >"$tmp/missing-generated.out" 2>"$tmp/missing-generated.err"; then
+  echo "push without generated values output unexpectedly passed" >&2
   exit 1
-}
+fi
+grep -Fq -- '--push requires --generated-values' "$tmp/missing-generated.err"
 
-if DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
-    "$ROOT/scripts/create-promotion-payload.sh" "$tmp/invalid.json" main \
+sed 's/tag: v0.1.0/tag: bad\/tag/' "$tmp/values.yaml" >"$tmp/invalid-tag-values.yaml"
+if VALUES_FILE="$tmp/invalid-tag-values.yaml" DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
+    "$ROOT/scripts/build-images.sh" --push \
+    --generated-values "$tmp/invalid-tag-generated.yaml" "$revision" \
+    >"$tmp/invalid-tag.out" 2>"$tmp/invalid-tag.err"; then
+  echo "invalid OCI tag unexpectedly passed" >&2
+  exit 1
+fi
+grep -Fq 'images values must be a non-empty kebab-case map' "$tmp/invalid-tag.err"
+
+mkdir -p "$tmp/external-only"
+sed '/custom-worker:/,/pullPolicy: IfNotPresent/d; s/tag: v2.3.4/tag: latest/' \
+  "$tmp/values.yaml" >"$tmp/external-only-values.yaml"
+FAKE_DOCKER_LOG="$tmp/external-only.log" VALUES_FILE="$tmp/external-only-values.yaml" \
+  IMAGES_DIR="$tmp/external-only/missing-images" \
+  DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
+  "$ROOT/scripts/build-images.sh" --push \
+    --generated-values "$tmp/external-only-generated.yaml" "$revision" >/dev/null
+grep -Fq 'pull registry.example.com/team/external-data:latest' "$tmp/external-only.log"
+! grep -q '^build ' "$tmp/external-only.log"
+
+if VALUES_FILE="$tmp/values.yaml" "$ROOT/scripts/create-promotion-payload.sh" \
+    "$tmp/invalid.json" "$tmp/generated-values.yaml" main \
     >"$tmp/invalid.out" 2>"$tmp/invalid.err"; then
   echo "mutable revision unexpectedly produced a promotion payload" >&2
   exit 1
 fi
 grep -Fq 'revision must be a 40-character lowercase Git SHA' "$tmp/invalid.err"
-
-mkdir -p "$tmp/images/alpha" "$tmp/images/new-worker"
-: >"$tmp/images/alpha/Dockerfile"
-: >"$tmp/images/new-worker/Dockerfile"
-IMAGES_DIR="$tmp/images" DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
-  IMAGE_REGISTRY=registry.example.com/team \
-  "$ROOT/scripts/create-promotion-payload.sh" "$tmp/dynamic.json" "$revision" >/dev/null
-jq -e '(.images | keys | sort) == ["alpha", "newWorker"]' "$tmp/dynamic.json" >/dev/null
-
-FAKE_DOCKER_LOG="$tmp/dynamic-docker.log" IMAGES_DIR="$tmp/images" \
-  DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" IMAGE_REGISTRY=registry.example.com/team \
-  "$ROOT/scripts/build-images.sh" --push --release-tag 1.2.3 --latest "$revision"
-[ "$(grep -c '^build ' "$tmp/dynamic-docker.log")" -eq 2 ]
-grep -Fq 'temp-poc-alpha:1.2.3' "$tmp/dynamic-docker.log"
-grep -Fq 'temp-poc-alpha:latest' "$tmp/dynamic-docker.log"
-grep -Fq 'temp-poc-new-worker:latest' "$tmp/dynamic-docker.log"
-
-if DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
-    "$ROOT/scripts/build-images.sh" --push --release-tag 1.2 "$revision" \
-    >"$tmp/bad-version.out" 2>"$tmp/bad-version.err"; then
-  echo "invalid release version unexpectedly passed" >&2
-  exit 1
-fi
-grep -Fq 'release tag must use X.Y.Z semantic version format' "$tmp/bad-version.err"
-
-if DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
-    "$ROOT/scripts/build-images.sh" --push --release-tag 01.2.3 "$revision" \
-    >"$tmp/leading-zero.out" 2>"$tmp/leading-zero.err"; then
-  echo "release version with a leading zero unexpectedly passed" >&2
-  exit 1
-fi
-grep -Fq 'release tag must use X.Y.Z semantic version format' "$tmp/leading-zero.err"
-
-if DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
-    "$ROOT/scripts/build-images.sh" --push --latest "$revision" \
-    >"$tmp/latest-without-release.out" 2>"$tmp/latest-without-release.err"; then
-  echo "latest without a release version unexpectedly passed" >&2
-  exit 1
-fi
-grep -Fq -- '--latest requires --push and --release-tag' "$tmp/latest-without-release.err"
-
-mkdir -p "$tmp/empty-images"
-if IMAGES_DIR="$tmp/empty-images" DOCKER_BIN="$ROOT/tests/fixtures/fake-docker.sh" \
-    "$ROOT/scripts/build-images.sh" "$revision" >"$tmp/empty.out" 2>"$tmp/empty.err"; then
-  echo "empty image inventory unexpectedly passed" >&2
-  exit 1
-fi
-grep -Fq 'no images/*/Dockerfile files found' "$tmp/empty.err"
 
 echo "image metadata script tests passed"

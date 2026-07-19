@@ -5,7 +5,6 @@ harbor_username="${HARBOR_USERNAME:-}"
 harbor_password="${HARBOR_PASSWORD:-}"
 unset HARBOR_USERNAME HARBOR_PASSWORD
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 artifact_type='application/vnd.scalex.release-promotion.v1+json'
 layer_type='application/vnd.scalex.release-promotion.payload.v1+json'
 manifest_type='application/vnd.oci.image.manifest.v1+json'
@@ -43,21 +42,11 @@ esac
 [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ ]] || fail 'GITHUB_RUN_ID must be a positive integer'
 [[ "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]] || fail 'GITHUB_RUN_ATTEMPT must be a positive integer'
 
-for tool in jq git sha256sum cmp wc grep mktemp "$oras_bin"; do
+for tool in jq sha256sum cmp wc grep mktemp "$oras_bin"; do
   command -v "$tool" >/dev/null 2>&1 || fail "required command not found: $tool"
 done
 
-discovered_count=0
-inventory="$("$root/scripts/discover-images.sh")"
-while IFS=$'\t' read -r key component _; do
-  expected_repository="$namespace_prefix/temp-poc-$component"
-  jq -e --arg key "$key" --arg repository "$expected_repository" \
-    '.images[$key].repository == $repository' "$payload" >/dev/null || \
-    fail "promotion payload is missing discovered image: $component"
-  discovered_count=$((discovered_count + 1))
-done <<<"$inventory"
-
-jq -e --arg revision "$source_sha" --argjson imageCount "$discovered_count" '
+jq -e --arg revision "$source_sha" --arg namespace "$namespace_prefix/" '
   type == "object" and
   (keys | sort) == ["apiVersion", "images", "kind", "release", "source"] and
   .apiVersion == "scalex.io/v1alpha1" and
@@ -68,14 +57,15 @@ jq -e --arg revision "$source_sha" --argjson imageCount "$discovered_count" '
     path: "chart",
     revision: $revision
   } and
-  (.images | type == "object" and length == $imageCount) and
-  all(.images[];
-    type == "object" and
-    (keys | sort) == ["digest", "repository", "sourceRevision", "tag"] and
-    (.repository | type == "string" and length > 0) and
-    .tag == ("sha-" + $revision) and
-    .sourceRevision == $revision and
-    (.digest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
+  (.images | type == "object" and length > 0) and
+  all(.images | to_entries[];
+    (.key | test("^[a-z0-9]+(-[a-z0-9]+)*$")) and
+    (.value | type == "object") and
+    (.value | keys | sort) == ["digest", "repository", "sourceRevision", "tag"] and
+    (.value.repository | type == "string" and startswith($namespace)) and
+    (.value.tag | type == "string" and test("^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$")) and
+    .value.sourceRevision == $revision and
+    (.value.digest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
   )
 ' "$payload" >/dev/null || fail 'invalid ReleasePromotion payload contract'
 
@@ -165,21 +155,4 @@ else
   [ "$VERIFIED_DIGEST" = "sha256:$(sha256sum "$exported_manifest" | cut -d' ' -f1)" ] || fail 'exported manifest digest mismatch'
 fi
 candidate_digest="$VERIFIED_DIGEST"
-
-remote_record="$(git -C "$root" ls-remote --exit-code origin refs/heads/main)" || fail 'failed to read origin main'
-read -r remote_main remote_ref extra <<<"$remote_record"
-[[ "$remote_main" =~ ^[0-9a-f]{40}$ ]] && [ "$remote_ref" = refs/heads/main ] && [ -z "${extra:-}" ] || fail 'origin main response is malformed'
-if [ "$remote_main" != "$source_sha" ]; then
-  echo "origin main moved; immutable promotion retained without channel update" >&2
-  printf '%s\n' "$candidate_digest"
-  exit 0
-fi
-
-run_oras tag "${oras_remote_args[@]}" --registry-config "$registry_config" "$repository@$candidate_digest" latest-verified \
-  >"$tmp/tag.out" 2>"$tmp/tag.err" || fail 'failed to move latest-verified channel'
-run_oras manifest fetch "${oras_remote_args[@]}" --registry-config "$registry_config" --descriptor "$repository:latest-verified" \
-  >"$tmp/channel-post.json" 2>"$tmp/channel-post.err" || fail 'failed to resolve latest-verified after tagging'
-post_digest="$(jq -er '.digest | select(type == "string" and test("^sha256:[0-9a-f]{64}$"))' "$tmp/channel-post.json")" || fail 'latest-verified descriptor is malformed'
-[ "$post_digest" = "$candidate_digest" ] || fail 'latest-verified does not resolve to the verified artifact digest'
-
 printf '%s\n' "$candidate_digest"
