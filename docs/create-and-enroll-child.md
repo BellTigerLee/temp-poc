@@ -1,148 +1,133 @@
-# 새로운 child 만들기와 scalex-federation 연결하기
+# 새 child 만들기와 scalex-federation 연결하기
 
-이 문서는 다른 개발자가 자신의 feature repository를 만들고,
-`scalex-federation`을 통해 Tower Karmada에 배포하기 위한 최소 절차를 설명한다.
+이 절차는 외부 팀의 `sample-poc` repository를 `scalex-sample-poc` release로 등록하는
+예시다. 애플리케이션 기능 구현이나 image build pipeline은 범위에 포함하지 않는다.
+먼저 [child 최소 계약](scalex-federation-child-contract.md)을 확인한다.
 
-## 1. child repository 생성
+## 1. 이름과 소유권 결정
 
-처음부터 다음 구조를 만든다.
+다음 네 값을 먼저 정한다.
 
 ```text
-my-child/
-├── chart/
-│   ├── Chart.yaml
-│   ├── values.yaml
-│   ├── values.schema.json       # 선택
-│   └── templates/
-│       ├── deployment.yaml      # 필요한 workload
-│       ├── service.yaml         # 필요한 경우
-│       └── policy/              # Karmada policy가 필요하면 chart가 소유
-├── images/                      # 이미지를 직접 빌드할 때만
-├── src/                         # 애플리케이션 소스
-└── docs/
+repository URL: https://github.com/<owner>/sample-poc.git
+chart path:     chart
+release ID:     scalex-sample-poc
+namespace:      scalex-sample-poc
 ```
 
-필수 조건은 다음과 같다.
+현재 Federation AppProject가 `scalex-*` namespace만 허용하므로 release ID와 namespace에
+`scalex-` 접두사를 사용한다. repository 이름 자체는 다를 수 있다.
 
-- `chart/Chart.yaml`은 Helm v3 application chart여야 한다.
-- `chart/values.yaml`에 모든 기본값을 선언한다.
-- `chart/templates/`는 `helm lint chart`와 `helm template`으로 렌더링되어야 한다.
-- chart는 배포 대상 namespace를 사용하지만 member namespace 자체를 직접 생성하지 않는다.
-  namespace는 각 `*-k8s` 운영 repository에서 먼저 준비한다.
-- Secret 원문과 장기 credential을 Git에 저장하지 않는다.
-- 사용자용 base values에는 명시된 stable `vX.Y.Z` tag를 사용한다. `latest`는 가장
-  높은 version이 아니므로 Child의 version 선택 값으로 사용하지 않는다.
+## 2. child chart 작성
 
-## 2. child를 로컬에서 검증
+`sample-poc/` 예시와 같은 최소 구조를 만든다.
 
-최소 검증은 다음과 같다.
+```text
+chart/Chart.yaml
+chart/values.yaml
+chart/values.schema.json
+chart/templates/_helpers.tpl
+chart/templates/deployment.yaml
+chart/templates/propagation-policy.yaml
+scripts/validate.sh
+.github/workflows/validate.yaml
+```
+
+기능이 필요할 때만 source, Dockerfile, Service, RBAC, `OverridePolicy`를 추가한다. chart는
+Namespace나 infra Secret을 생성하지 않는다.
+
+## 3. child를 독립 검증하고 publish
 
 ```bash
-helm lint --strict chart
-helm template my-child chart --namespace <workload-namespace> >/tmp/my-child.yaml
+./scripts/validate.sh
+git add .
+git commit -m "Add ScaleX child chart"
+git push origin main
+git rev-parse HEAD
 ```
 
-workload, Service, `PropagationPolicy`, `OverridePolicy`가 모두 기대한 namespace와
-cluster selector를 사용하는지 확인한다. child가 Python/Go 등 애플리케이션을 포함하면
-언어별 테스트와 image build도 함께 통과시킨다.
+마지막 명령의 40자리 SHA와 workload image digest를 기록한다. Federation에 branch나
+mutable image tag만 전달하지 않는다.
 
-## 3. image 준비
+## 4. Federation source 허용
 
-각 image는 `chart/values.yaml`에 명시한 stable version tag로 push한다.
-
-```text
-<registry>/<child>-<component>:v0.1.0
-```
-
-같은 tag가 이미 있어도 build/push를 시도하며, Harbor immutable-tag policy가 설정된
-경우 registry가 덮어쓰기를 거부할 수 있다. registry가 반환한 digest와 child commit
-SHA는 generated values에 기록한다. Federation release의 `revision`과 image
-`sourceRevision`은 동일한 child commit을 가리켜야 한다.
-
-## 4. Federation에 child 등록
-
-`scalex-federation`의 `contracts/children.yaml`에 repository와 chart path를 추가한다.
+`scalex-federation/bootstrap/appproject.yaml`의 `spec.sourceRepos`에 정확한 URL을 추가한다.
 
 ```yaml
-- name: my-child
-  repoURL: https://github.com/<owner>/my-child.git
-  paths:
-    - chart
+spec:
+  sourceRepos:
+    - https://github.com/<owner>/sample-poc.git
 ```
 
-그 다음 `releases/my-child/`를 만들고 두 파일을 추가한다.
+private repository라면 Argo repository credential 준비는 별도 운영 절차다. credential을
+child나 Federation Git에 넣지 않는다.
 
-```text
-releases/my-child/
-├── release.yaml
-└── values.yaml
-```
+## 5. disabled release 등록
 
-`release.yaml` 예시:
+`scalex-federation/releases/scalex-sample-poc/`에 두 파일을 만든다.
 
 ```yaml
-name: my-child
-namespace: scalex-my-child
+# releases/scalex-sample-poc/release.yaml
+schemaVersion: v1
+name: scalex-sample-poc
+namespace: scalex-sample-poc
 state: disabled
+disabledReason: Waiting for chart and member dependency verification.
 renderer: helm/v1
 source:
-  repoURL: https://github.com/<owner>/my-child.git
+  repoURL: https://github.com/<owner>/sample-poc.git
   path: chart
   revision: <40-character-child-commit-sha>
 values:
-  path: releases/my-child/values.yaml
+  path: releases/scalex-sample-poc/values.yaml
 promotion:
-  mode: tracked
+  mode: pinned
 ```
 
-처음에는 `state: disabled`로 검증하고, chart와 values가 준비되면 `active`로 바꾼다.
-`values.yaml`에는 사용자 소유 image repository/tag/pullPolicy, workload 설정, Karmada
-placement 같은 배포 override만 넣는다. digest와 source revision은 CI promotion
-payload가 관리한다.
+```yaml
+# releases/scalex-sample-poc/values.yaml
+image:
+  repository: registry.k8s.io/pause
+  tag: "3.10"
+  digest: sha256:ee6521f290b2168b6e0935a181d4cff9be1ac3f505666ef0e3c98fae8199917a
+  pullPolicy: IfNotPresent
+karmada:
+  enabled: true
+  placement:
+    cluster: <registered-member-name>
+```
 
-## 5. namespace와 infra dependency 준비
+`values.yaml`에는 배포마다 달라지는 최소 override만 둔다. sample image는 구조 검증용이며
+실제 child는 자신의 검증된 image repository/tag/digest로 교체한다.
 
-`scalex-my-child` namespace와 OBC/PVC, 외부 endpoint 같은 infra dependency는 child chart나
-Federation release에 넣지 않는다. 대상 클러스터의 `b-k8s`, `c-k8s` 등 운영 repository에서
-먼저 준비하고, child는 values로 이름과 endpoint만 참조한다.
+## 6. 활성화 전 검증
 
-## 6. Pull Request와 배포
+child repository에서 Federation과 같은 입력으로 렌더링한다.
 
-두 저장소의 변경을 각각 Pull Request로 검토한다.
+```bash
+helm lint --strict chart \
+  --values /path/to/scalex-federation/releases/scalex-sample-poc/values.yaml
+helm template scalex-sample-poc chart \
+  --namespace scalex-sample-poc \
+  --values /path/to/scalex-federation/releases/scalex-sample-poc/values.yaml \
+  > /tmp/scalex-sample-poc.yaml
+```
 
-1. child repository: chart, source, image build와 local validation
-2. `scalex-federation`: enrollment, `releases/<name>/release.yaml`, `values.yaml`
-3. federation PR merge 후 Tower ArgoCD가 Karmada destination에 동기화
-4. Karmada가 placement에 따라 member cluster에 workload를 전파
+다음을 모두 확인한 뒤 별도 Federation PR에서 `state: active`로 바꾼다.
 
-child CI는 promotion PR을 자동 생성하거나 Federation `main`에 직접 push하지 않는다.
-`temp-poc`의 image flow에서는 `chart/values.yaml`의 임의 image map을 읽는다.
-`images/<key>/Dockerfile`이 있으면 명시된 `repository:tag`를 항상 build/push하고,
-없으면 기존 image의 digest만 조회한다. digest와 source revision은 별도의 generated
-values와 promotion payload로 생성하며 base values에 commit하지 않는다. 현재 ORAS
-publication은 비활성화되어 있다. 명시적으로 `tag: latest`를 지정하면 일반 tag 그대로
-처리할 뿐 최고 version을 조회하거나 별도 tag를 자동 생성하지 않는다. ORAS를 다시
-활성화하더라도 child는 immutable OCI artifact만 publish하고 `latest-verified` 같은
-selection channel을 이동하지 않는다.
+- AppProject에 exact child URL이 있다.
+- `source.revision`이 publish한 child의 40자리 SHA다.
+- chart path가 실제 `chart/`와 일치한다.
+- 렌더 결과의 Deployment image가 digest로 고정된다.
+- PropagationPolicy selector가 그 Deployment를 정확히 선택한다.
+- 선택한 member 이름이 Tower Karmada에 등록되어 있다.
+- member namespace와 필요한 infra dependency가 해당 `*-k8s` 경로로 준비되어 있다.
 
-검증된 promotion 중 가장 높은 SemVer를 선택하고 repository, tag, digest를 고정하는
-정책은 Federation의 책임이다. Helm은 그 최종 선택을 manifest로 렌더링할 뿐 Harbor를
-조회하거나 image version을 선택하지 않는다.
+## 7. 활성화와 rollback
 
-CI가 `chart/values.yaml` 또는 generated values를 commit하는 경로는 사용하지 않는다.
+활성화는 Federation PR에서 `state: active`를 merge하는 행위다. Tower Argo의
+`scalex-federation` ApplicationSet이 child chart와 Federation values를 함께 읽고 Karmada
+destination으로 sync한다. rollback은 `source.revision`과 values를 이전 검증 조합으로
+되돌리는 Federation PR로 수행한다.
 
-현재 simplified flow에서는 GitHub App 기반 cross-repository promotion 설정을 사용하지
-않는다. child CI는 `HARBOR_USERNAME`과 `HARBOR_PASSWORD`로 기존 Harbor
-repository에 publish/pull만 수행하고, workflow는 GitHub `contents: read` 및 no Git
-write permission을 유지한다. immutable run tag는 초기에는 무기한 보관을 의도하지만,
-실제 Harbor retention은 TLS와 policy 검증이 끝나기 전까지 아직 확인되지 않았다.
-
-## 7. 활성화 전 확인 목록
-
-- [ ] child repository의 `chart/`가 Helm lint/render를 통과한다.
-- [ ] `contracts/children.yaml`의 repo URL과 `chart` path가 실제와 일치한다.
-- [ ] release `revision`이 40자리 commit SHA다.
-- [ ] promotion payload의 image tag, digest, `sourceRevision`이 같은 commit을 가리킨다.
-- [ ] 대상 member cluster에 namespace와 infra dependency가 존재한다.
-- [ ] `state: active` 전환 후 Federation validation이 통과한다.
-- [ ] ArgoCD sync 후 Karmada ResourceBinding과 member workload를 확인한다.
+child CI는 cluster에 직접 apply하거나 `scalex-federation/main`에 직접 push하지 않는다.

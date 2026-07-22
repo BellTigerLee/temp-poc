@@ -1,5 +1,11 @@
 # temp-poc
 
+> 다른 팀이 새 child repository를 만들기 위한 일반 계약은
+> [`docs/scalex-federation-child-contract.md`](docs/scalex-federation-child-contract.md),
+> 실제 등록 절차는
+> [`docs/create-and-enroll-child.md`](docs/create-and-enroll-child.md)를 따른다.
+> 이 저장소의 애플리케이션·이미지 promotion 구현은 예시일 뿐 최소 계약이 아니다.
+
 `temp-poc` is one deployable Helm release for a small end-to-end ScaleX
 multi-cluster service test.
 
