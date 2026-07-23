@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/SJoon99/scalex-federation/schemas/child.values.schema.json",
-  "title": "ScaleX child chart values — platform contract",
-  "description": "Federation이 소유하는 values subtree만 검증한다. child 고유 values는 검증하지 않는다. child는 이 파일을 chart/values.schema.json으로 그대로 복사(vendoring)한다. 원격 $ref는 사용하지 않는다 - Argo repo-server와 Tekton이 렌더할 때마다 외부 네트워크에 의존하게 된다.",
+  "$id": "https://scalex.io/schemas/child-values/v1",
+  "title": "ScaleX child chart values - platform contract",
+  "description": "Federation이 소유하는 values subtree만 검증한다. child 고유 values는 검증하지 않는다. 정본은 scalex-federation/docs/child-values-schema.md 이며, child는 이 내용을 chart/values.schema.json으로 복사한다.",
 
   "type": "object",
   "additionalProperties": true,
@@ -24,7 +24,7 @@
             "pattern": "^[A-Za-z0-9.-]+(:[0-9]+)?/[A-Za-z0-9._/-]+$"
           },
           "tag": {
-            "description": "OCI tag. semver 강제는 여기가 아니라 Tekton child-buildkit-build-push Task가 한다. 두 곳에서 강제하면 규칙이 드리프트하고, Federation generated values가 sha-<40hex> 태그를 쓰는 경우 렌더가 깨진다.",
+            "description": "OCI tag. semver 강제는 Tekton child-buildkit-build-push Task가 한다. 두 곳에서 강제하면 규칙이 드리프트하고, Federation generated values가 sha-<40hex> 태그를 쓰는 경우 렌더가 깨진다.",
             "type": "string",
             "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$"
           },
@@ -46,7 +46,7 @@
     },
 
     "karmada": {
-      "description": "Karmada policy 토글. Federation values에서는 반드시 enabled=true여야 한다. policy가 실제로 렌더되는지는 scripts/validate-render.sh가 검사한다 - 스키마의 일이 아니다.",
+      "description": "Karmada policy 토글. Federation values에서는 반드시 enabled=true여야 한다. policy가 실제로 렌더되는지는 스키마가 아니라 렌더 결과 검증이 확인한다.",
       "type": "object",
       "additionalProperties": true,
       "properties": {
